@@ -10,6 +10,8 @@ common_checks ("run", @output);
 
 fail "missing 'begin' message\n"
   if !grep ($_ eq '(halt) begin', @output);
+fail "found 'complete' message--halt didn't really halt"
+  if grep ($_ eq 'Execution of \'halt\' complete.', @output);
 fail "found 'fail' message--halt didn't really halt\n"
   if grep ($_ eq '(halt) fail', @output);
 pass;
