@@ -73,6 +73,12 @@ pid_t process_execute(const char* file_name) {
    running. */
 static void start_process(void* file_name_) {
   char* file_name = (char*)file_name_;
+
+  /*
+  file deny write prevents the exeubtable file from being written to while it is running. 
+  */
+  filesys_init(false); // IMPORTANT: not sure whether it should be false or true
+
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -91,6 +97,10 @@ static void start_process(void* file_name_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+    t->pcb->fd_counter =
+        3; // initializes FD counter to 3, avoiding 0,1,2 for STDIN, STDOUT, STDERROR respectively
+    t->pcb->file_list = malloc(sizeof(struct list));
+    list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -288,6 +298,8 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     printf("load: %s: open failed\n", file_name);
     goto done;
   }
+  //DENIES WRITING TO EXECUTABLE
+  file_deny_write(file);
 
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
