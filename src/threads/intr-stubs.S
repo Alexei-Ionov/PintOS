@@ -18,11 +18,18 @@
 .func intr_entry
 intr_entry:
 	/* Save caller's registers. */
+
 	pushl %ds
 	pushl %es
 	pushl %fs
 	pushl %gs
 	pushal
+   /*
+   first decrement the stack by 108 bytes then save the FPU 
+   */
+   sub $108, %esp
+   FSAVE (%esp)
+
 
 	/* Set up kernel environment. */
 	cld			/* String instructions go upward. */

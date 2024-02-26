@@ -52,9 +52,7 @@ void housekeep_metadata_list(void) {
     struct process_metadata* shared_data = list_entry(ptr, struct process_metadata, elem);
     struct list_elem* next_ptr = list_next(ptr);
     /*
-    concept check: is this pattern for locking and releasing fine? 
-  
-    
+    concept check: is this pattern for locking and releasing fine?     
     */
     lock_acquire(&(shared_data->lock));
     shared_data->ref_cnt -= 1;
@@ -76,6 +74,10 @@ upon exit we housekeep our children list of metadata (dermenting the ref cnt for
 */
 int exit(int status) {
   // destroy table
+  /***
+   t = therad_current
+   * 
+  */
   struct process_metadata* shared_data = t->pcb->own_metadata;
 
   /*
@@ -388,23 +390,27 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   safe_args[1] = args[2];
   safe_args[2] = args[3];
   int index = 1;
+
+  /**
+   * CHECKK::::
+   possible that i need to pass in a ptr to the bttom of the PAGE
+   
+   * 
+  */
   // while (index <= argc && args[index] != NULL) {
   //   //need to fix: for now just putting this here to check on valid args
   //   safe_args[index - 1] = args[index];
   //   if (is_user_vaddr((const void *) args[index]) && pagedir_get_page(pd, (const void *) args[index]) != NULL) {
   //     index += 1;
   //   } else {
-  //     index += 1;
-  //      /*
-  //     TODO: figure out how to gracefully handle invalid arg
-  //     */
+  //     kill(f);
   //   }
   // }
   if (exepected_num_args(sys_val) != index - 1) {
     /*
-    TODO: figure out how to gracefully handle invalid arg
     this can be caused in a case where say write takes 3 args but only 2 are given. 
     */
+    kill(f);
   }
   /*
    * The following print statement, if uncommented, will print out the syscall
