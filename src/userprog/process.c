@@ -23,11 +23,8 @@
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
-static bool load(const char* file_name, void (**eip)(void), void** esp);
 
-struct process_create_args = {const char * file_name;
-struct* process_metadata metadata
-}
+static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
@@ -54,7 +51,7 @@ void userprog_init(void) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
-pid_t process_execute(const char* file_name, struct* process_metadata metadata) {
+pid_t process_execute(const char* file_name, struct process_metadata* metadata) {
   char* fn_copy;
   tid_t tid;
   struct process_create_args* args =
@@ -83,18 +80,18 @@ pid_t process_execute(const char* file_name, struct* process_metadata metadata) 
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* args) {
+static void start_process(void* arg) {
   /*
   destructure args from struct 
   */
-  struct process_create_args* args = (struct process_create_args*)args;
+  struct process_create_args* args = (struct process_create_args*)arg;
   const char* file_name = args->file_name;
-  struct* process_metadata metadata = agrs->metadata;
+  struct process_metadata* metadata = args->metadata;
 
   /*
   this sets up the filesystem. not sure if i shuold statrt it up at kernel boot or here
   */
-  filesys_init(false); // IMPORTANT: not sure whether it should be false or true
+  // filesys_init(false); // already done for us in init.c
 
   struct thread* t = thread_current();
   struct intr_frame if_;

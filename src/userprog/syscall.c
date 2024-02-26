@@ -20,6 +20,7 @@
 //used for checking args
 #include "userprog/pagedir.h"
 #include "threads/vaddr.h"
+#include "devices/shutdown.h"
 
 static void syscall_handler(struct intr_frame*);
 
@@ -40,18 +41,33 @@ in the case where ref cnt becomes zero then we can remove and free it from our l
 void housekeep_metadata_list(void) {
   struct list* metadata_list = thread_current()->pcb->children_list;
   struct list_elem* ptr = list_begin(metadata_list);
+  /*
+  idear here is to iterate through shared metadata for children list 
 
+  upon decrementing the ref cnt (after acquiring lock), 
+
+  if the ref cnt == 0, then we will first remove the node from our list & free the memory associated with the struct
+  */
   while (ptr != list_end(metadata_list)) {
-    struct process_metadata* metadata = list_entry(ptr, struct process_metadata, elem);
-    metadata->ref_cnt -= 1;
+    struct process_metadata* shared_data = list_entry(ptr, struct process_metadata, elem);
     struct list_elem* next_ptr = list_next(ptr);
-    if (metadata->ref_cnt == 0) {
-      list_remove(&(metadata->elem));
-      free(metadata);
+    /*
+    concept check: is this pattern for locking and releasing fine? 
+  
+    
+    */
+    lock_acquire(&(shared_data->lock));
+    shared_data->ref_cnt -= 1;
+
+    if (shared_data->ref_cnt == 0) {
+      list_remove(&(shared_data->elem));
+      free(shared_data);
+    } else {
+      lock_release(&(shared_data->lock));
     }
     ptr = next_ptr;
   }
-  free(metadata_list);
+  free(metadata_list); //at the end, free the entire list
 }
 
 /*
@@ -61,18 +77,31 @@ upon exit we housekeep our children list of metadata (dermenting the ref cnt for
 int exit(int status) {
   // destroy table
   struct process_metadata* shared_data = t->pcb->own_metadata;
-  lock_acquire(&(shared_data->metadata_lock));
-  housekeep_metadata_list();
-  lock_release(&(shared_data->metadata_lock));
+
+  /*
+  first we acquire the lock corresponding to the shared data b/w us and our parent
+
+  then we do the same for all our children & the metadata struct shared b/w us
+  
+  */
   shared_data->exit_status = status;
-  /* if our parent is waiting for us, then we need to sema_up*/
   if (shared_data->waiting) {
     sema_up(&(shared_data->sema));
   }
+  lock_acquire(&(shared_data->metadata_lock));
+  shared_data->ref_cnt -= 1;
+  if (shared_data->ref_cnt == 0) {
+    free(
+        shared_data); //technically we don't need to release the lock here since no one needs the info anymore
+  } else {
+    lock_release(&(shared_data->metadata_lock));
+  }
+  housekeep_metadata_list(); //does the same ^ for entire childrens list
+  /* if our parent is waiting for us, then we need to sema_up*/
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   process_exit();
 }
-void halt(void) {}
+void halt(void){shutdown_power_off()}
 
 pid_t exec(const char* file) {
   /*
@@ -90,12 +119,12 @@ pid_t exec(const char* file) {
   lock_init(&(metadata->metadata_lock));
 
   pid_t child_id = process_execute(file, metadata);
-  metadata->child_id = child_id;
+  metadata->pid = child_id;
   // list_push_back(c_list, &metadata->elem);
   sema_down(&(metadata->sema)); //waits for child to get to loading
   if (!metadata->load_successful) {
     free(metadata);
-    free(file);
+    free(file); //free the command line args?
     exit(-1);
   }
   //other wise load is successful
@@ -103,7 +132,57 @@ pid_t exec(const char* file) {
   return child_id;
 }
 
-int wait(pid_t pid) {}
+int wait(pid_t pid) {
+  int seen = 0;
+  struct list* metadata_list = thread_current()->pcb->children_list;
+  struct list_elem* ptr;
+  /*
+  iterate thru metadata list to find metadata that matches our child pid
+  */
+  struct process_metadata* shared_data;
+  for (ptr = list_begin(metadata_list); ptr != list_end(metadata_list); ptr = list_next(ptr)) {
+    struct process_metadata* metadata = list_entry(ptr, struct process_metadata, elem);
+    if (metadata->pid == pid) {
+      shared_data = metadata;
+      seen = 1;
+      break;
+    }
+  }
+  /*
+  if child pid doesn't exist in our childrens list 
+  OR 
+  if parent has already called wait on this child, 
+
+  then return -1
+  */
+  if (!seen || (shared_data != NULL && shared_data->waiting == true)) {
+    return -1;
+  }
+  /*
+  now we need to check whether the child has already finished executing via ref counter
+
+  if it has finished alr, then we don't need to wait 
+
+  note: note sure if we need to acquire and release lock. doing it JUST IN CASE. 
+
+  
+  */
+
+  lock_acquire(&(metadata->lock));
+  if (metadata->ref_cnt == 1) {
+    int ret = metadata->exit_status;
+    lock_release(&(metadata->lock));
+    return ret; //child alr exited
+  }
+  metadata->waiting = true; //allows our child to know that we are waiting for them
+  lock_release(&(metadata->lock));
+  sema_down(&(metadata->sema)); //if child hasn't yet exited we need to wait for it to up the sema
+  /*
+  once we get here we know our child exited and has the exit status in the shared metadata
+  */
+
+  return metadata->exit_status;
+}
 
 // bool create(const char* file, unsigned initial_size) { return filesys_create(file, initial_size); }
 
@@ -387,5 +466,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     exit((int)safe_args[0]);
   } else if (sys_val == SYS_PRACTICE) {
     f->eax = practice((int)safe_args[0]);
+  } else if (sys_val == SYS_HALT {
+    halt();
+  } else if (sys_val == SYS_EXEC) {
+    f->eax = exec((const char*)safe_args[0]);
+  } else if (sys_val == SYS_WAIT) {
+    f->eax = wait((pid_t)safe_args[0]);
   }
 }

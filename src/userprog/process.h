@@ -18,6 +18,10 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+struct process_create_args {
+  const char* file_name;
+  struct process_metadata* metadata;
+};
 struct process_metadata {
   pid_t
       pid; //pid could be the pid of the process that owns this struct or the pid of the child, depending on the context
@@ -28,7 +32,7 @@ struct process_metadata {
   struct lock metadata_lock;
   bool load_successful;
   struct list_elem elem;
-}
+};
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -42,12 +46,12 @@ struct process {
   int fd_counter;             // counter for fd
   struct list* file_list;     // pointer to list of FD table
   struct list* children_list;
-  struct process_metadata own_metadata;
+  struct process_metadata* own_metadata;
 };
 
 void userprog_init(void);
 
-pid_t process_execute(const char* file_name);
+pid_t process_execute(const char* file_name, struct process_metadata* metadata);
 int process_wait(pid_t);
 void process_exit(void);
 void process_activate(void);
