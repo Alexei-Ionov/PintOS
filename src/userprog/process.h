@@ -3,6 +3,7 @@
 
 #include "threads/thread.h"
 #include <stdint.h>
+#include "filesys/file.h"
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
@@ -18,14 +19,15 @@ typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
 struct process_metadata {
-  pid_t child_id; //parent
+  pid_t
+      pid; //pid could be the pid of the process that owns this struct or the pid of the child, depending on the context
   struct semaphore sema;
   int exit_status; //exit status of the child
   int ref_cnt;
-  bool waiting; //waiting set as TRUE
+  bool waiting;
   struct lock metadata_lock;
   bool load_successful;
-
+  struct list_elem elem;
 }
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
@@ -40,6 +42,7 @@ struct process {
   int fd_counter;             // counter for fd
   struct list* file_list;     // pointer to list of FD table
   struct list* children_list;
+  struct process_metadata own_metadata;
 };
 
 void userprog_init(void);

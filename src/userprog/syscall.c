@@ -32,16 +32,47 @@ void syscall_init(void) {
 
 int practice(int i) { return i + 1; }
 
-// void halt(void) { return; }
+/*
+iterates through the processes children list, decremeting ref cnt by 1
+
+in the case where ref cnt becomes zero then we can remove and free it from our list
+*/
+void housekeep_metadata_list(void) {
+  struct list* metadata_list = thread_current()->pcb->children_list;
+  struct list_elem* ptr = list_begin(metadata_list);
+
+  while (ptr != list_end(metadata_list)) {
+    struct process_metadata* metadata = list_entry(ptr, struct process_metadata, elem);
+    metadata->ref_cnt -= 1;
+    struct list_elem* next_ptr = list_next(ptr);
+    if (metadata->ref_cnt == 0) {
+      list_remove(&(metadata->elem));
+      free(metadata);
+    }
+    ptr = next_ptr;
+  }
+  free(metadata_list);
+}
 
 /*
-IMPORTANT: need to check up on exit. not sure if f-eax matters in certain cases
+upon exit we housekeep our children list of metadata (dermenting the ref cnt for each)
+
 */
-// void exit(int status) {
-//   //destroy_table()
-//   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
-//   process_exit();
-// }
+int exit(int status) {
+  // destroy table
+  struct process_metadata* shared_data = t->pcb->own_metadata;
+  lock_acquire(&(shared_data->metadata_lock));
+  housekeep_metadata_list();
+  lock_release(&(shared_data->metadata_lock));
+  shared_data->exit_status = status;
+  /* if our parent is waiting for us, then we need to sema_up*/
+  if (shared_data->waiting) {
+    sema_up(&(shared_data->sema));
+  }
+  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
+  process_exit();
+}
+void halt(void) {}
 
 pid_t exec(const char* file) {
   /*
@@ -57,18 +88,22 @@ pid_t exec(const char* file) {
   metadata->waiting = false;
   metadata->load_successful = false;
   lock_init(&(metadata->metadata_lock));
-  list_push_back(c_list, &info->elem);
-  tid_t child_id = process_execute(file, metadata);
+
+  pid_t child_id = process_execute(file, metadata);
   metadata->child_id = child_id;
+  // list_push_back(c_list, &metadata->elem);
   sema_down(&(metadata->sema)); //waits for child to get to loading
   if (!metadata->load_successful) {
     free(metadata);
+    free(file);
     exit(-1);
   }
+  //other wise load is successful
+  list_push_back(c_list, &metadata->elem);
   return child_id;
 }
 
-// int wait(pid_t pid) { return 0; }
+int wait(pid_t pid) {}
 
 // bool create(const char* file, unsigned initial_size) { return filesys_create(file, initial_size); }
 
@@ -349,9 +384,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (sys_val == SYS_EXIT) {
     // destroy_table();
     f->eax = safe_args[0];
-    // exit((int) safe_args[1]);
-    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, (int)safe_args[0]);
-    process_exit();
+    exit((int)safe_args[0]);
   } else if (sys_val == SYS_PRACTICE) {
     f->eax = practice((int)safe_args[0]);
   }

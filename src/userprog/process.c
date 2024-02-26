@@ -69,6 +69,10 @@ pid_t process_execute(const char* file_name, struct* process_metadata metadata) 
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
+  struct process_create_args* args =
+      (struct process_create_args*)malloc(sizeof(struct process_create_args));
+  args->metadata = metadata;
+  args->file_name = fn_copy;
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)args);
@@ -116,6 +120,7 @@ static void start_process(void* args) {
     list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
     t->pcb->children_list = malloc(sizeof(struct list));
     list_init(t->pcb->children_list);
+    t->pcb->own_metadata = metadata;
   }
 
   /* Initialize interrupt frame and load executable. */
