@@ -37,7 +37,9 @@ struct file_info {
 // struct file* getFile(int fd);
 
 // int write(int fd, const void* buffer, unsigned size);
+int exepected_num_args(int sys_val);
 bool isFileSys(int sys_val);
+bool isValidSys(int sys_val);
 struct file_info* getInfo(int fd);
 void syscall_init(void);
 void halt(void);

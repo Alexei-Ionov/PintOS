@@ -24,6 +24,10 @@ static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
+
+struct process_create_args = {const char * file_name;
+struct* process_metadata metadata
+}
 bool setup_thread(void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
@@ -50,9 +54,13 @@ void userprog_init(void) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
-pid_t process_execute(const char* file_name) {
+pid_t process_execute(const char* file_name, struct* process_metadata metadata) {
   char* fn_copy;
   tid_t tid;
+  struct process_create_args* args =
+      (struct process_create_args*)malloc(sizeof(struct process_create_args));
+  args->metadata = metadata;
+  args->file_name = file_name;
 
   sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -63,7 +71,7 @@ pid_t process_execute(const char* file_name) {
   strlcpy(fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)args);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   return tid;
@@ -71,11 +79,16 @@ pid_t process_execute(const char* file_name) {
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+static void start_process(void* args) {
+  /*
+  destructure args from struct 
+  */
+  struct process_create_args* args = (struct process_create_args*)args;
+  const char* file_name = args->file_name;
+  struct* process_metadata metadata = agrs->metadata;
 
   /*
-  file deny write prevents the exeubtable file from being written to while it is running. 
+  this sets up the filesystem. not sure if i shuold statrt it up at kernel boot or here
   */
   filesys_init(false); // IMPORTANT: not sure whether it should be false or true
 
@@ -101,6 +114,8 @@ static void start_process(void* file_name_) {
         3; // initializes FD counter to 3, avoiding 0,1,2 for STDIN, STDOUT, STDERROR respectively
     t->pcb->file_list = malloc(sizeof(struct list));
     list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
+    t->pcb->children_list = malloc(sizeof(struct list));
+    list_init(t->pcb->children_list);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -110,6 +125,17 @@ static void start_process(void* file_name_) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+    /* 
+    sema up the shared semaphore so that parent process knows that loading was successful!
+    
+    */
+    if (success) {
+      metadata->load_successful = true;
+    } else {
+      metadata->load_successful = false;
+      metadata->exit_status = -1;
+    }
+    sema_up(&(metadata->sema));
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
