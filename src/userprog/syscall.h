@@ -15,9 +15,7 @@ struct file_info {
   struct file* f; //ptr to the actual file in the file description table
 };
 
-// void destroy_table(void);
-// bool create(const char* file, unsigned initial_size);
-
+void destroy_fd_table(void);
 int practice(int i);
 
 void halt(void);
@@ -28,16 +26,16 @@ pid_t exec(const char* file);
 
 int wait(pid_t pid);
 
-// bool create(const char* file, unsigned initial_size);
-// bool remove(const char* file);
+bool create(const char* file, unsigned initial_size);
+bool remove(const char* file);
 
-// int open(const char* filename);
+int open(const char* filename);
 
-// int read(int fd, void* buffer, unsigned size);
+int read(int fd, void* buffer, unsigned size);
 
-// struct file* getFile(int fd);
+struct file* getFile(int fd);
 
-// int write(int fd, const void* buffer, unsigned size);
+int write(int fd, const void* buffer, unsigned size);
 void housekeep_metadata_list(void);
 int exepected_num_args(int sys_val);
 bool isFileSys(int sys_val);

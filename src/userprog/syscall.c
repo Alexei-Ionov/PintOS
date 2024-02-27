@@ -73,14 +73,7 @@ upon exit we housekeep our children list of metadata (dermenting the ref cnt for
 
 */
 void exit(int status) {
-  // destroy table
-  /***
-   t = therad_current
-   * 
-  */
 
-  // destroy_table();
-  housekeep_metadata_list(); //decrments ref counter for each shared struct
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   process_exit(status);
 }
@@ -144,8 +137,8 @@ int wait(pid_t pid) {
     return ret; //child alr exited
   }
   lock_release(&(shared_data->metadata_lock));
-  sema_down(
-      &(shared_data->sema)); //if child hasn't yet exited we need to wait for it to up the sema
+  //if child hasn't yet exited we need to wait for it to up the sema
+  sema_down(&(shared_data->sema));
   /*
   once we get here we know our child exited and has the exit status in the shared metadata
   */
@@ -309,12 +302,14 @@ void close(int fd) {
   free(info);
 }
 
-void destroy_table(void) {
+void destroy_fd_table(void) {
   struct list* fd_list = thread_current()->pcb->file_list;
   while (!list_empty(fd_list)) {
     struct list_elem* ptr = list_back(fd_list);
     struct file_info* info = list_entry(ptr, struct file_info, elem);
-    close(info->fd);
+    file_close(info->f);
+    list_remove(&(info->elem));
+    free(info);
   }
   free(fd_list); // free the entire list at the end
 }
@@ -359,17 +354,21 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   3.) PAGE BOUNDARY naunces
 
   */
+  //note actually safe yet lol. real checking happens below with the pointers
   uint32_t*
       safe_args[3]; //note actually safe yet lol. real checking happens below with the pointers
-  int argc = exepected_num_args(sys_val);
+  int argc = 1 + exepected_num_args(sys_val);
   int index = 1;
-  while (index <= argc) {
-    if (args[index] == NULL) {
-      exit(-1);
-    }
-    safe_args[index - 1] = args[index];
-    index += 1;
-  }
+  safe_args[0] = (uint32_t*)args[1];
+  safe_args[1] = (uint32_t*)args[2];
+  safe_args[2] = (uint32_t*)args[3];
+  // while (index <= argc) {
+  //   if (args[index] == NULL) {
+  //     exit(-1);
+  //   }
+  //   safe_args[index - 1] = args[index];
+  //   index += 1;
+  // }
 
   /*
    * The following print statement, if uncommented, will print out the syscall

@@ -19,6 +19,8 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+//allows us to use helper functions for cleaning
+#include "userprog/syscall.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -197,6 +199,19 @@ void process_exit(int status) {
     thread_exit();
     NOT_REACHED();
   }
+  /*
+  destroy our file descriptor table first 
+  
+  clean up shared metadata structs w/ children
+  */
+  // destroy_fd_table();
+  // housekeep_metadata_list();
+
+  /*
+  afterward, clean up the metadata struct that the curr process shares w/ its parent
+  */
+  destroy_fd_table();
+  housekeep_metadata_list();
   struct process_metadata* shared_data = cur->pcb->own_metadata;
   shared_data->exit_status = status;
 
