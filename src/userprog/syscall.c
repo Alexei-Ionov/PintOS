@@ -318,17 +318,38 @@ void destroy_table(void) {
   }
   free(fd_list); // free the entire list at the end
 }
+
+void isValidPointer(void* ptr) {
+
+  if (!(ptr != NULL && is_user_vaddr((const void*)ptr))) {
+    exit(-1);
+  }
+  /*
+  go thru all of the bytes pointed to by pointer to make sure none lie on page boundary
+  */
+  uint32_t* pd = active_pd();
+  for (int i = 0; i < 4; i++) {
+    /*
+    cast to char pointer to be able to use pointer arithmetic to get individual byte increments
+    */
+    char* offset_ptr = (char*)ptr + i;
+    if (pagedir_get_page(pd, (const void*)offset_ptr) == NULL) {
+      exit(-1);
+    }
+  }
+}
 static void syscall_handler(struct intr_frame* f UNUSED) {
+  /*
+  first we check to see if the esp itself is valid
+  */
+  isValidPointer((void*)f->esp);
   uint32_t* args = ((uint32_t*)f->esp);
   /*
   first we make sure the syscall number is actually valid. i dont think this is actally necessary but will have to double check. 
   */
-  // if (!isValidSys(args[0])) {
-  //   /*
-  //   TODO: figure out how to gracefully handle invalid arg
-  //   */
-  //   exit(-1);
-  // }
+  if (!isValidSys(args[0])) {
+    exit(-1);
+  }
   int sys_val = args[0];
 
   /*
@@ -338,33 +359,18 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   3.) PAGE BOUNDARY naunces
 
   */
-  //idea is to iterate until we hit a NULL value since we know it MUST BE here. we know we reach a premature NULL if argc != exepected num args for that sys call
-  uint32_t* pd = active_pd();
-  uint32_t* safe_args[3];
+  uint32_t*
+      safe_args[3]; //note actually safe yet lol. real checking happens below with the pointers
   int argc = exepected_num_args(sys_val);
-  safe_args[0] = args[1];
-  safe_args[1] = args[2];
-  safe_args[2] = args[3];
   int index = 1;
+  while (index <= argc) {
+    if (args[index] == NULL) {
+      exit(-1);
+    }
+    safe_args[index - 1] = args[index];
+    index += 1;
+  }
 
-  /**
-   * check:
-   possible that i need to pass in a ptr to the bttom of the PAGE
-   * 
-  */
-  // while (index <= argc && args[index] != NULL) {
-
-  //   if (!(is_user_vaddr((const void *) args[index]) && pagedir_get_page(pd, (const void *) args[index]) != NULL)) {
-  //     kill(f);
-  //   }
-  //   safe_args[index - 1] = args[index];
-  // }
-  // if (exepected_num_args(sys_val) != index - 1) {
-  //   /*
-  //   this can be caused in a case where say write takes 3 args but only 2 are given.
-  //   */
-  //   exit(-1);
-  // }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -377,45 +383,47 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (isFileSys(sys_val)) {
     lock_acquire(&file_sys_lock);
     if (sys_val == SYS_WRITE) {
+      isValidPointer((void*)safe_args[1]);
       f->eax = write((int)safe_args[0], (const void*)safe_args[1], (unsigned int)safe_args[2]);
+    } else if (sys_val == SYS_REMOVE) {
+      isValidPointer((void*)safe_args[0]);
+      f->eax = remove((const char*)safe_args[0]);
+
+    } else if (sys_val == SYS_OPEN) {
+      isValidPointer((void*)safe_args[0]);
+      f->eax = open((const char*)safe_args[0]);
+
+    } else if (sys_val == SYS_FILESIZE) {
+
+      f->eax = filesize((int)safe_args[0]);
+
+    } else if (sys_val == SYS_CLOSE) {
+      int fd = (int)safe_args[0];
+      close(fd);
+
+    } else if (sys_val == SYS_TELL) {
+      int fd = (int)safe_args[0];
+      f->eax = tell(fd);
+
+    } else if (sys_val == SYS_CREATE) {
+      isValidPointer((void*)safe_args[0]);
+
+      const char* filename = (const char*)safe_args[0];
+      unsigned int size = (unsigned int)safe_args[1];
+      f->eax = create(filename, size);
+
+    } else if (sys_val == SYS_SEEK) {
+      int fd = (int)safe_args[0];
+      unsigned int pos = (unsigned int)safe_args[1];
+      seek(fd, pos);
+
+    } else if (sys_val == SYS_READ) {
+      isValidPointer((void*)safe_args[1]);
+      int fd = (int)safe_args[0];
+      const void* buffer = (const void*)safe_args[1];
+      unsigned int size = (unsigned int)safe_args[2];
+      f->eax = read(fd, buffer, size);
     }
-    // } else if (sys_val == SYS_REMOVE) {
-    //   const char* filename = (const char*) args[1];
-    //   f->eax = remove(filename);
-
-    // } else if (sys_val == SYS_OPEN) {
-    //   const char* filename = (const char*) args[1];
-    //   f->eax = open(filename);
-
-    // } else if (sys_val == SYS_FILESIZE) {
-    //   int fd = args[1];
-    //   f->eax = filesize(fd);
-
-    // } else if (sys_val == SYS_CLOSE) {
-    //   int fd = args[1];
-    //   close(fd);
-
-    // } else if (sys_val == SYS_TELL) {
-    //   int fd = args[1];
-    //   f->eax = tell(fd);
-
-    // } else if (sys_val == SYS_CREATE) {
-    //   const char* filename = (const char*) args[1];
-    //   unsigned int size = args[2];
-    //   f->eax = create(filename, size);
-
-    // } else if (sys_val == SYS_SEEK) {
-    //   int fd = args[1];
-    //   unsigned int pos = args[2];
-    //   seek(fd, pos);
-
-    // } else if (sys_val == SYS_READ) {
-    //   int fd = args[1];
-    //   const void* buffer = (const void*)args[2];
-    //   unsigned int size = args[3];
-    //   f->eax = read(fd, buffer, size);
-    //   //aqiure lcok
-    // }
     lock_release(&file_sys_lock);
   }
 
@@ -427,6 +435,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   } else if (sys_val == SYS_HALT) {
     halt();
   } else if (sys_val == SYS_EXEC) {
+    isValidPointer((void*)safe_args[0]);
     f->eax = exec((const char*)safe_args[0]);
   } else if (sys_val == SYS_WAIT) {
     f->eax = wait((pid_t)safe_args[0]);
