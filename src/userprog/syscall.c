@@ -7,7 +7,7 @@
 #include "threads/thread.h"
 #include "userprog/process.h"
 
-//allows us to use file_info struct
+//allows us to use file struct operations
 #include "filesys/file.h"
 // addded this here to get putbuf
 #include "lib/kernel/console.h"
@@ -20,7 +20,7 @@
 //used for checking args
 #include "userprog/pagedir.h"
 #include "threads/vaddr.h"
-#include "devices/shutdown.h"
+#include "devices/shutdown.h" //for halt()
 
 static void syscall_handler(struct intr_frame*);
 
@@ -54,14 +54,14 @@ void housekeep_metadata_list(void) {
     /*
     concept check: is this pattern for locking and releasing fine?     
     */
-    lock_acquire(&(shared_data->lock));
+    lock_acquire(&(shared_data->metadata_lock));
     shared_data->ref_cnt -= 1;
 
     if (shared_data->ref_cnt == 0) {
       list_remove(&(shared_data->elem));
       free(shared_data);
     } else {
-      lock_release(&(shared_data->lock));
+      lock_release(&(shared_data->metadata_lock));
     }
     ptr = next_ptr;
   }
@@ -72,81 +72,48 @@ void housekeep_metadata_list(void) {
 upon exit we housekeep our children list of metadata (dermenting the ref cnt for each)
 
 */
-int exit(int status) {
+void exit(int status) {
   // destroy table
   /***
    t = therad_current
    * 
   */
-  struct process_metadata* shared_data = t->pcb->own_metadata;
 
-  /*
-  first we acquire the lock corresponding to the shared data b/w us and our parent
-
-  then we do the same for all our children & the metadata struct shared b/w us
-  
-  */
-  shared_data->exit_status = status;
-  if (shared_data->waiting) {
-    sema_up(&(shared_data->sema));
-  }
-  lock_acquire(&(shared_data->metadata_lock));
-  shared_data->ref_cnt -= 1;
-  if (shared_data->ref_cnt == 0) {
-    free(
-        shared_data); //technically we don't need to release the lock here since no one needs the info anymore
-  } else {
-    lock_release(&(shared_data->metadata_lock));
-  }
-  housekeep_metadata_list(); //does the same ^ for entire childrens list
-  /* if our parent is waiting for us, then we need to sema_up*/
+  // destroy_table();
+  housekeep_metadata_list(); //decrments ref counter for each shared struct
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
-  process_exit();
+  process_exit(status);
 }
-void halt(void){shutdown_power_off()}
+void halt(void) { shutdown_power_off(); }
 
 pid_t exec(const char* file) {
-  /*
-  structure: 
 
-  1.) add metadata node to childrens list
-  2.) run process execute
-  */
-  struct list* c_list = t->pcb->children_list;
-  struct process_metadata* metadata = malloc(sizeof(process_metadata));
-  sema_init(&(metadata->sema));
-  metadata->ref_cnt = 2;
-  metadata->waiting = false;
-  metadata->load_successful = false;
-  lock_init(&(metadata->metadata_lock));
+  struct process_metadata* shared_data = process_execute(file);
 
-  pid_t child_id = process_execute(file, metadata);
-  metadata->pid = child_id;
-  // list_push_back(c_list, &metadata->elem);
-  sema_down(&(metadata->sema)); //waits for child to get to loading
-  if (!metadata->load_successful) {
-    free(metadata);
+  sema_down(&(shared_data->sema)); //waits for child to get to loading
+  if (!shared_data->load_successful) {
+    free(shared_data);
     free(file); //free the command line args?
     exit(-1);
   }
   //other wise load is successful
-  list_push_back(c_list, &metadata->elem);
-  return child_id;
+  struct list* c_list = thread_current()->pcb->children_list;
+  list_push_back(c_list, &(shared_data->elem));
+  return shared_data->pid;
 }
 
 int wait(pid_t pid) {
-  int seen = 0;
+
   struct list* metadata_list = thread_current()->pcb->children_list;
   struct list_elem* ptr;
   /*
   iterate thru metadata list to find metadata that matches our child pid
   */
-  struct process_metadata* shared_data;
+  struct process_metadata* shared_data = NULL;
   for (ptr = list_begin(metadata_list); ptr != list_end(metadata_list); ptr = list_next(ptr)) {
     struct process_metadata* metadata = list_entry(ptr, struct process_metadata, elem);
     if (metadata->pid == pid) {
       shared_data = metadata;
-      seen = 1;
       break;
     }
   }
@@ -157,7 +124,7 @@ int wait(pid_t pid) {
 
   then return -1
   */
-  if (!seen || (shared_data != NULL && shared_data->waiting == true)) {
+  if (shared_data == NULL || (shared_data != NULL && shared_data->waiting == true)) {
     return -1;
   }
   /*
@@ -165,61 +132,59 @@ int wait(pid_t pid) {
 
   if it has finished alr, then we don't need to wait 
 
-  note: note sure if we need to acquire and release lock. doing it JUST IN CASE. 
+  note: not sure if we need to acquire and release lock. doing it JUST IN CASE. 
 
   
   */
-
-  lock_acquire(&(metadata->lock));
-  if (metadata->ref_cnt == 1) {
-    int ret = metadata->exit_status;
-    lock_release(&(metadata->lock));
+  shared_data->waiting = true; //allows our child to know that we are waiting for them
+  lock_acquire(&(shared_data->metadata_lock));
+  if (shared_data->ref_cnt == 1) {
+    int ret = shared_data->exit_status;
+    lock_release(&(shared_data->metadata_lock));
     return ret; //child alr exited
   }
-  metadata->waiting = true; //allows our child to know that we are waiting for them
-  lock_release(&(metadata->lock));
-  sema_down(&(metadata->sema)); //if child hasn't yet exited we need to wait for it to up the sema
+  lock_release(&(shared_data->metadata_lock));
+  sema_down(
+      &(shared_data->sema)); //if child hasn't yet exited we need to wait for it to up the sema
   /*
   once we get here we know our child exited and has the exit status in the shared metadata
   */
 
-  return metadata->exit_status;
+  return shared_data->exit_status;
 }
 
-// bool create(const char* file, unsigned initial_size) { return filesys_create(file, initial_size); }
+bool create(const char* file, unsigned initial_size) { return filesys_create(file, initial_size); }
 
-// bool remove(const char* file) { return filesys_remove(file); }
+bool remove(const char* file) { return filesys_remove(file); }
 
-// int open(const char* filename) {
-//   struct file* file = filesys_open(filename);
-//   if (file == NULL) { //failed to open file
-//     return -1;
-//   }
-//   struct file_info* info = malloc(sizeof(struct file_info));
-//   if (info == NULL) {
-//     perror("malloc failed while creating file_info struct");
-//     return -1;
-//   }
-//   info->file = file;
-//   /*
-//   IMPORTANT: for later, might need to change implementation FOR LOCKING. for now, we assume fine since we use global lock for all file syscalls
-//   */
-//   info->fd = thread_current()->pcb->fd_counter;
-//   thread_current()->pcb->fd_counter += 1;
+int open(const char* filename) {
+  struct file* file = filesys_open(filename);
+  if (file == NULL) { //failed to open file
+    return -1;
+  }
+  struct file_info* info = malloc(sizeof(struct file_info));
+  if (info == NULL) {
+    return -1;
+  }
+  info->f = file;
+  /*
+  IMPORTANT: for later, might need to change implementation FOR LOCKING. for now, we assume fine since we use global lock for all file syscalls
+  */
+  info->fd = thread_current()->pcb->fd_counter;
+  thread_current()->pcb->fd_counter += 1;
 
-//   struct list* fd_list = thread_current()->pcb->file_list;
-//   list_push_back(fd_list, &info->elem);
-//   return info->fd;
-// }
+  struct list* fd_list = thread_current()->pcb->file_list;
+  list_push_back(fd_list, &info->elem);
+  return info->fd;
+}
 
-// int filesize(int fd) {
-//   struct file_info* info = getInfo(fd);
-//   if (info == NULL) {
-//     perror("no matching fd");
-//     return -1;
-//   }
-//   return info->file->inode.inode_disk.length;
-// }
+int filesize(int fd) {
+  struct file_info* info = getInfo(fd);
+  if (info == NULL) {
+    return -1;
+  }
+  return file_length(info->f);
+}
 
 // /*
 
@@ -228,38 +193,35 @@ int wait(pid_t pid) {
 // need to fix the below read() function. not sure if this is correct imlpementation since input_getc() just waits for input
 
 // */
-// int read(int fd, void* buffer, unsigned size) {
-//   if (fd == 0) { //READING FROM STDIN
-//     int cnt = 0;
-//     while (cnt != size) {
-//       char c = (char)input_getc();
-//       buffer[cnt] = c;
-//       cnt += 1;
-//     }
-//     return cnt;
+int read(int fd, void* buffer, unsigned size) {
+  if (fd == 0) { //READING FROM STDIN
+    unsigned cnt = 0;
+    while (cnt != size) {
+      char c = (char)input_getc();
+      ((char*)buffer)[cnt] = c;
+      cnt += 1;
+    }
+    return cnt;
+  } else {
+    struct file_info* info = getInfo(fd);
+    if (info == NULL) {
+      return -1;
+    }
+    return file_read(info->f, buffer, size);
+  }
+}
 
-//   } else {
-//     struct info_file* info = getInfo(fd);
-//     if (info == NULL) {
-//       perror("no matching fd");
-//       return -1;
-//     }
-
-//     return file_read(info->file, buffer, size);
-//   }
-// }
-
-// struct file_info* getInfo(int fd) {
-//   struct list* fd_list = thread_current()->pcb->file_list;
-//   struct list_elem* ptr;
-//   for (ptr = list_begin(fd_list); ptr != list_end(fd_list); ptr = list_next(ptr)) {
-//     struct file_info* info = list_entry(ptr, struct file_info, elem);
-//     if (info->fd == fd) {
-//       return info;
-//     }
-//   }
-//   return NULL;
-// }
+struct file_info* getInfo(int fd) {
+  struct list* fd_list = thread_current()->pcb->file_list;
+  struct list_elem* ptr;
+  for (ptr = list_begin(fd_list); ptr != list_end(fd_list); ptr = list_next(ptr)) {
+    struct file_info* info = list_entry(ptr, struct file_info, elem);
+    if (info->fd == fd) {
+      return info;
+    }
+  }
+  return NULL;
+}
 
 int write(int fd, const void* buffer, unsigned size) {
   if (fd == 1) { //WRITING TO STDOUT!
@@ -272,41 +234,34 @@ int write(int fd, const void* buffer, unsigned size) {
     putbuf(buffer + cnt, size);
     cnt += size; // in the final iteration we read the final size bytes
     return cnt;
+  } else {
+    struct file_info* info = getInfo(fd);
+    if (info == NULL) {
+      return -1;
+    }
+    struct file* file = info->f;
+    if (file == NULL) {
+      return -1;
+    }
+    off_t written = file_write(file, buffer, size);
+    return written;
   }
-  return -1;
 }
 
-//   } else {
-//     struct file_info* info = getInfo(fd);
-//     if (info == NULL) {
-//       // perror("no matching fd");
-//       return -1;
-//     }
-//     struct file* file = info->file;
-//     if (file == NULL) {
-//       return -1;
-//     }
-//     off_t written = file_write(file, buffer, size);
-//     return written;
-//   }
-//   return -1;
-// }
+void seek(int fd, unsigned position) {
+  struct file_info* info = getInfo(fd);
+  if (info != NULL) {
+    file_seek(info->f, position);
+  }
+}
 
-// void seek(int fd, unsigned position) {
-//   struct file_info* info = getInfo(fd);
-//   if (info != NULL) {
-//     file_seek(info->file, position);
-//   }
-// }
-
-// unsigned tell(int fd) {
-//   struct file_info* info = getInfo(fd);
-//   if (info == NULL) {
-//     perror("fd not found");
-//     exit(-1);
-//   }
-//   return file_tell(info->file);
-// }
+unsigned tell(int fd) {
+  struct file_info* info = getInfo(fd);
+  if (info == NULL) {
+    exit(-1);
+  }
+  return file_tell(info->f);
+}
 bool isFileSys(int sys_val) {
   return (sys_val == SYS_WRITE || sys_val == SYS_READ || sys_val == SYS_OPEN ||
           sys_val == SYS_FILESIZE || sys_val == SYS_TELL || sys_val == SYS_CLOSE ||
@@ -344,35 +299,36 @@ int exepected_num_args(int sys_val) {
   }
 }
 
-// void close(int fd) {
-//   struct file_info* info = getInfo(fd);
-//   if (info == NULL) {
-//     perror("no matching fd");
-//     exit(-1);
-//   }
-//   file_close(info->file);
-//   list_remove(&(info->elem)); // removes fd from list
-//   free(info);
-// }
-// void destroy_table(void) {
-//   struct list* fd_list = thread_current()->pcb->file_list;
-//   while (!list_empty(fd_list)) {
-//     struct list_elem* ptr = list_back(fd_list);
-//     struct file_info* info = list_entry(ptr, struct file_info, elem);
-//     close(info->fd);
-//   }
-//   free(fd_list); // free the entire list at the end
-// }
+void close(int fd) {
+  struct file_info* info = getInfo(fd);
+  if (info == NULL) {
+    exit(-1);
+  }
+  file_close(info->f);
+  list_remove(&(info->elem)); // removes fd from list
+  free(info);
+}
+
+void destroy_table(void) {
+  struct list* fd_list = thread_current()->pcb->file_list;
+  while (!list_empty(fd_list)) {
+    struct list_elem* ptr = list_back(fd_list);
+    struct file_info* info = list_entry(ptr, struct file_info, elem);
+    close(info->fd);
+  }
+  free(fd_list); // free the entire list at the end
+}
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
   /*
   first we make sure the syscall number is actually valid. i dont think this is actally necessary but will have to double check. 
   */
-  if (!isValidSys(args[0])) {
-    /*
-    TODO: figure out how to gracefully handle invalid arg
-    */
-  }
+  // if (!isValidSys(args[0])) {
+  //   /*
+  //   TODO: figure out how to gracefully handle invalid arg
+  //   */
+  //   exit(-1);
+  // }
   int sys_val = args[0];
 
   /*
@@ -392,26 +348,23 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   int index = 1;
 
   /**
-   * CHECKK::::
+   * check:
    possible that i need to pass in a ptr to the bttom of the PAGE
-   
    * 
   */
   // while (index <= argc && args[index] != NULL) {
-  //   //need to fix: for now just putting this here to check on valid args
-  //   safe_args[index - 1] = args[index];
-  //   if (is_user_vaddr((const void *) args[index]) && pagedir_get_page(pd, (const void *) args[index]) != NULL) {
-  //     index += 1;
-  //   } else {
+
+  //   if (!(is_user_vaddr((const void *) args[index]) && pagedir_get_page(pd, (const void *) args[index]) != NULL)) {
   //     kill(f);
   //   }
+  //   safe_args[index - 1] = args[index];
   // }
-  if (exepected_num_args(sys_val) != index - 1) {
-    /*
-    this can be caused in a case where say write takes 3 args but only 2 are given. 
-    */
-    kill(f);
-  }
+  // if (exepected_num_args(sys_val) != index - 1) {
+  //   /*
+  //   this can be caused in a case where say write takes 3 args but only 2 are given.
+  //   */
+  //   exit(-1);
+  // }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -467,12 +420,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
 
   if (sys_val == SYS_EXIT) {
-    // destroy_table();
     f->eax = safe_args[0];
     exit((int)safe_args[0]);
   } else if (sys_val == SYS_PRACTICE) {
     f->eax = practice((int)safe_args[0]);
-  } else if (sys_val == SYS_HALT {
+  } else if (sys_val == SYS_HALT) {
     halt();
   } else if (sys_val == SYS_EXEC) {
     f->eax = exec((const char*)safe_args[0]);

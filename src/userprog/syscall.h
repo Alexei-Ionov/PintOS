@@ -11,21 +11,22 @@ typedef int pid_t;
 
 struct file_info {
   struct list_elem elem;
-  int fd;            //fd of the file
-  struct file* file; //ptr to the actual file in the file description table
+  int fd;         //fd of the file
+  struct file* f; //ptr to the actual file in the file description table
 };
+
 // void destroy_table(void);
 // bool create(const char* file, unsigned initial_size);
 
-// int practice(int i);
+int practice(int i);
 
-// void halt(void);
+void halt(void);
 
-// void exit(int status);
+void exit(int status);
 
-// pid_t exec(const char* file);
+pid_t exec(const char* file);
 
-// int wait(pid_t pid);
+int wait(pid_t pid);
 
 // bool create(const char* file, unsigned initial_size);
 // bool remove(const char* file);
@@ -37,6 +38,7 @@ struct file_info {
 // struct file* getFile(int fd);
 
 // int write(int fd, const void* buffer, unsigned size);
+void housekeep_metadata_list(void);
 int exepected_num_args(int sys_val);
 bool isFileSys(int sys_val);
 bool isValidSys(int sys_val);

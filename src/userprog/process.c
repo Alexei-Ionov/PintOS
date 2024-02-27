@@ -51,15 +51,23 @@ void userprog_init(void) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
-pid_t process_execute(const char* file_name, struct process_metadata* metadata) {
+struct process_metadata* process_execute(const char* file_name) {
+
   char* fn_copy;
   tid_t tid;
-  struct process_create_args* args =
-      (struct process_create_args*)malloc(sizeof(struct process_create_args));
-  args->metadata = metadata;
-  args->file_name = file_name;
 
   sema_init(&temporary, 0);
+
+  struct process_metadata* metadata = malloc(sizeof(struct process_metadata));
+  if (metadata == NULL) {
+    //TO DO
+    printf("error here 1");
+  }
+  sema_init(&(metadata->sema), 0);
+  metadata->ref_cnt = 2;
+  metadata->waiting = false;
+  metadata->load_successful = false;
+  lock_init(&(metadata->metadata_lock));
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -75,7 +83,8 @@ pid_t process_execute(const char* file_name, struct process_metadata* metadata) 
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)args);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
-  return tid;
+  metadata->pid = (pid_t)tid;
+  return metadata;
 }
 
 /* A thread function that loads a user process and starts it
@@ -86,12 +95,7 @@ static void start_process(void* arg) {
   */
   struct process_create_args* args = (struct process_create_args*)arg;
   const char* file_name = args->file_name;
-  struct process_metadata* metadata = args->metadata;
-
-  /*
-  this sets up the filesystem. not sure if i shuold statrt it up at kernel boot or here
-  */
-  // filesys_init(false); // already done for us in init.c
+  struct process_metadata* shared_data = args->metadata;
 
   struct thread* t = thread_current();
   struct intr_frame if_;
@@ -100,7 +104,6 @@ static void start_process(void* arg) {
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
-
   /* Initialize process control block */
   if (success) {
     // Ensure that timer_interrupt() -> schedule() -> process_activate()
@@ -111,15 +114,20 @@ static void start_process(void* arg) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-    t->pcb->fd_counter =
-        3; // initializes FD counter to 3, avoiding 0,1,2 for STDIN, STDOUT, STDERROR respectively
+    // initializes FD counter to 3, avoiding 0,1,2 for STDIN, STDOUT, STDERROR respectively
+    t->pcb->fd_counter = 3;
     t->pcb->file_list = malloc(sizeof(struct list));
+    if (t->pcb->file_list == NULL) {
+      printf("error here 2");
+    }
     list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
     t->pcb->children_list = malloc(sizeof(struct list));
+    if (t->pcb->children_list == NULL) {
+      printf("error here 3");
+    }
     list_init(t->pcb->children_list);
-    t->pcb->own_metadata = metadata;
+    t->pcb->own_metadata = shared_data;
   }
-
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -129,17 +137,15 @@ static void start_process(void* arg) {
     success = load(file_name, &if_.eip, &if_.esp);
     /* 
     sema up the shared semaphore so that parent process knows that loading was successful!
-    
     */
     if (success) {
-      metadata->load_successful = true;
+      shared_data->load_successful = true;
     } else {
-      metadata->load_successful = false;
-      metadata->exit_status = -1;
+      shared_data->load_successful = false;
+      shared_data->exit_status = -1;
     }
-    sema_up(&(metadata->sema));
+    sema_up(&(shared_data->sema));
   }
-
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
     // Avoid race where PCB is freed before t->pcb is set to NULL
@@ -176,13 +182,13 @@ static void start_process(void* arg) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
+int process_wait(struct process_metadata* UNUSED) {
   sema_down(&temporary);
   return 0;
 }
 
 /* Free the current process's resources. */
-void process_exit(void) {
+void process_exit(int status) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
@@ -190,6 +196,22 @@ void process_exit(void) {
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
+  }
+  struct process_metadata* shared_data = cur->pcb->own_metadata;
+  shared_data->exit_status = status;
+
+  lock_acquire(&(shared_data->metadata_lock));
+  shared_data->ref_cnt -= 1;
+  if (shared_data->ref_cnt == 0) {
+    //technically we don't need to release the lock
+    //here since no one needs the info anymore
+    free(shared_data);
+  } else {
+    lock_release(&(shared_data->metadata_lock));
+  }
+
+  if (shared_data->waiting) {
+    sema_up(&(shared_data->sema));
   }
 
   /* Destroy the current process's page directory and switch back
@@ -503,13 +525,6 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
   return true;
 }
 
-void stack_setup_helper(void** esp, const char* file_name) {
-  /*
-  TODO: implement arg passing
-
-
-  */
-}
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool setup_stack(void** esp, const char* file_name) {

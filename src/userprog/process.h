@@ -51,9 +51,9 @@ struct process {
 
 void userprog_init(void);
 
-pid_t process_execute(const char* file_name, struct process_metadata* metadata);
-int process_wait(pid_t);
-void process_exit(void);
+struct process_metadata* process_execute(const char* file_name);
+int process_wait(struct process_metadata*);
+void process_exit(int status);
 void process_activate(void);
 
 bool is_main_thread(struct thread*, struct process*);
