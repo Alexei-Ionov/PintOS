@@ -69,7 +69,9 @@ void housekeep_metadata_list(void) {
 }
 
 /*
-upon exit we housekeep our children list of metadata (dermenting the ref cnt for each)
+moved all the actual housekeeping for fd table & children list into process exit
+
+therefore, ALL exits (including when kernel kills our process) will be able to approriately free all memory
 
 */
 void exit(int status) {
@@ -260,19 +262,6 @@ bool isFileSys(int sys_val) {
           sys_val == SYS_FILESIZE || sys_val == SYS_TELL || sys_val == SYS_CLOSE ||
           sys_val == SYS_CREATE || sys_val == SYS_SEEK);
 }
-bool isValidSys(int sys_val) {
-  return (sys_val == SYS_WRITE || sys_val == SYS_READ || sys_val == SYS_OPEN ||
-          sys_val == SYS_FILESIZE || sys_val == SYS_TELL || sys_val == SYS_CLOSE ||
-          sys_val == SYS_CREATE || sys_val == SYS_SEEK || sys_val == SYS_HALT ||
-          sys_val == SYS_EXIT || sys_val == SYS_EXEC || sys_val == SYS_WAIT ||
-          sys_val == SYS_PRACTICE || sys_val == SYS_COMPUTE_E || sys_val == SYS_PT_CREATE ||
-          sys_val == SYS_PT_EXIT || sys_val == SYS_PT_JOIN || sys_val == SYS_LOCK_ACQUIRE ||
-          sys_val == SYS_LOCK_INIT || sys_val == SYS_PT_JOIN || sys_val == SYS_LOCK_RELEASE ||
-          sys_val == SYS_SEMA_DOWN || sys_val == SYS_SEMA_UP || sys_val == SYS_GET_TID ||
-          sys_val == SYS_MMAP || sys_val == SYS_MUNMAP || sys_val == SYS_CHDIR ||
-          sys_val == SYS_MKDIR || sys_val == SYS_READDIR || sys_val == SYS_ISDIR ||
-          sys_val == SYS_INUMBER);
-}
 int exepected_num_args(int sys_val) {
   if (sys_val == SYS_HALT || sys_val == SYS_PT_EXIT || sys_val == SYS_GET_TID) {
     return 0;
@@ -339,12 +328,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   */
   isValidPointer((void*)f->esp);
   uint32_t* args = ((uint32_t*)f->esp);
-  /*
-  first we make sure the syscall number is actually valid. i dont think this is actally necessary but will have to double check. 
-  */
-  if (!isValidSys(args[0])) {
-    exit(-1);
-  }
   int sys_val = args[0];
 
   /*
