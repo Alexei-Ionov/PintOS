@@ -264,7 +264,7 @@ bool isFileSys(int sys_val) {
 }
 int exepected_num_args(int sys_val) {
   if (sys_val == SYS_HALT || sys_val == SYS_PT_EXIT || sys_val == SYS_GET_TID) {
-    return 0;
+    return 1;
   } else if (sys_val == SYS_COMPUTE_E || sys_val == SYS_PRACTICE || sys_val == SYS_EXIT ||
              sys_val == SYS_EXEC || sys_val == SYS_WAIT || sys_val == SYS_REMOVE ||
              sys_val == SYS_OPEN || sys_val == SYS_FILESIZE || sys_val == SYS_TELL ||
@@ -272,12 +272,12 @@ int exepected_num_args(int sys_val) {
              sys_val == SYS_MKDIR || sys_val == SYS_ISDIR || sys_val == SYS_INUMBER ||
              sys_val == SYS_PT_JOIN || sys_val == SYS_LOCK_INIT || sys_val == SYS_LOCK_ACQUIRE ||
              sys_val == SYS_LOCK_RELEASE || sys_val == SYS_SEMA_DOWN || sys_val == SYS_SEMA_UP) {
-    return 1;
+    return 2;
   } else if (sys_val == SYS_CREATE || sys_val == SYS_SEEK || sys_val == SYS_MMAP ||
              sys_val == SYS_READDIR || sys_val == SYS_SEMA_INIT) {
-    return 2;
-  } else {
     return 3;
+  } else {
+    return 4;
   }
 }
 
@@ -303,20 +303,28 @@ void destroy_fd_table(void) {
   free(fd_list); // free the entire list at the end
 }
 
-void isValidPointer(void* ptr) {
-
-  if (!(ptr != NULL && is_user_vaddr((const void*)ptr))) {
+void isValidArg(void* ptr, int isBuffer) {
+  if (ptr == NULL) {
     exit(-1);
   }
+  int end = 4;
   /*
-  go thru all of the bytes pointed to by pointer to make sure none lie on page boundary
+  if it's a pointer than we only need to check 4 bytes
+
+  otherwise we need to check the whole buffer
   */
+  if (isBuffer) {
+    end = strlen((char*)ptr);
+  }
   uint32_t* pd = active_pd();
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < end; i++) {
     /*
     cast to char pointer to be able to use pointer arithmetic to get individual byte increments
     */
     char* offset_ptr = (char*)ptr + i;
+    if (!is_user_vaddr((const void*)offset_ptr)) {
+      exit(-1);
+    }
     if (pagedir_get_page(pd, (const void*)offset_ptr) == NULL) {
       exit(-1);
     }
@@ -326,32 +334,26 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   /*
   first we check to see if the esp itself is valid
   */
-  isValidPointer((void*)f->esp);
+
+  isValidArg((void*)f->esp, 0);
   uint32_t* args = ((uint32_t*)f->esp);
   int sys_val = args[0];
-
+  int argc = exepected_num_args(sys_val);
   /*
   ARGUMENT VALIDATION: 
   1.) check if ptrs are not NULL
   2.) check if ptrs lie in USER SPAxCE
-  3.) PAGE BOUNDARY naunces
-
+  3.) check PAGE BOUNDARY naunces
   */
-  //note actually safe yet lol. real checking happens below with the pointers
-  uint32_t*
-      safe_args[3]; //note actually safe yet lol. real checking happens below with the pointers
-  int argc = 1 + exepected_num_args(sys_val);
-  int index = 1;
-  safe_args[0] = (uint32_t*)args[1];
-  safe_args[1] = (uint32_t*)args[2];
-  safe_args[2] = (uint32_t*)args[3];
-  // while (index <= argc) {
-  //   if (args[index] == NULL) {
-  //     exit(-1);
-  //   }
-  //   safe_args[index - 1] = args[index];
-  //   index += 1;
-  // }
+  for (int i = 1; i < argc; i++) {
+    isValidArg(((void*)f->esp) + (i * 4), 0);
+  }
+
+  // at this point all the args are safe!
+  uint32_t* safe_args[3];
+  safe_args[0] = args[1];
+  safe_args[1] = args[2];
+  safe_args[2] = args[3];
 
   /*
    * The following print statement, if uncommented, will print out the syscall
@@ -365,14 +367,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (isFileSys(sys_val)) {
     lock_acquire(&file_sys_lock);
     if (sys_val == SYS_WRITE) {
-      isValidPointer((void*)safe_args[1]);
+      //1 for is valid Arg because this is a buffer!
+      isValidArg((void*)safe_args[1], 1);
       f->eax = write((int)safe_args[0], (const void*)safe_args[1], (unsigned int)safe_args[2]);
+
     } else if (sys_val == SYS_REMOVE) {
-      isValidPointer((void*)safe_args[0]);
+      isValidArg((void*)safe_args[0], 1);
       f->eax = remove((const char*)safe_args[0]);
 
     } else if (sys_val == SYS_OPEN) {
-      isValidPointer((void*)safe_args[0]);
+      isValidArg((void*)safe_args[0], 1);
       f->eax = open((const char*)safe_args[0]);
 
     } else if (sys_val == SYS_FILESIZE) {
@@ -388,7 +392,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = tell(fd);
 
     } else if (sys_val == SYS_CREATE) {
-      isValidPointer((void*)safe_args[0]);
+      isValidArg((void*)safe_args[0], 1);
 
       const char* filename = (const char*)safe_args[0];
       unsigned int size = (unsigned int)safe_args[1];
@@ -400,7 +404,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       seek(fd, pos);
 
     } else if (sys_val == SYS_READ) {
-      isValidPointer((void*)safe_args[1]);
+      isValidArg((void*)safe_args[1], 1);
       int fd = (int)safe_args[0];
       const void* buffer = (const void*)safe_args[1];
       unsigned int size = (unsigned int)safe_args[2];
@@ -417,7 +421,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   } else if (sys_val == SYS_HALT) {
     halt();
   } else if (sys_val == SYS_EXEC) {
-    isValidPointer((void*)safe_args[0]);
+    isValidArg((void*)safe_args[0], 1);
     f->eax = exec((const char*)safe_args[0]);
   } else if (sys_val == SYS_WAIT) {
     f->eax = wait((pid_t)safe_args[0]);

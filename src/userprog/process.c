@@ -539,158 +539,229 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
   }
   return true;
 }
-
 void setup_stack_helper(void** esp, const char* file_name) {
+  // figuring out argc value
+  int count = 0;
+  int total_len_args = 0;
+  char* saveptr_count;
+  char file_name_copy[strlen(file_name) + 1];
+  strlcpy(file_name_copy, file_name, strlen(file_name) + 1);
+  char* cur_arg_count = strtok_r(file_name_copy, " ", &saveptr_count);
+  char* saveptr_first;
+  char* cur_arg = strtok_r(file_name, " ", &saveptr_first);
 
-  int argc = 0;
-  int length_of_args = 0;
-  char* save_ptr;
-  char* arg;
-
-  /*
-  this code snippet just gets the total number of bytes of our strings (excluding the null terminators)
-  as well as the number of args itself (argc) which we can then use to compute the additional 
-  number of bytes needed for those null terminators
-  */
-  arg = strtok_r(file_name, " ", &save_ptr);
-  while (arg != NULL) {
-    argc += 1;
-    length_of_args += strlen(arg);
-    arg = strtok_r(NULL, " ", &save_ptr);
+  while (cur_arg_count != NULL) {
+    count++;
+    cur_arg_count = strtok_r(NULL, " ", &saveptr_count);
   }
-  //create a buffer array that we will use to be able to read args in reverse
-  char buf[length_of_args + argc];
-  int argLengths[argc];
 
-  /*
-  all we did here is add the string into a char buffer: 
+  // args should hold the ADDRESSES of where the esp starts for each argument
+  char* args[count];
 
-  ex: 
-
-  foo bar hello
-  |
-  V
-                                        i
-  [f, o, o, \0, b, a, r, \0, h, e, l, l, o, \0]
-  */
-  arg = strtok_r(file_name, " ", &save_ptr);
-  int index = 0;
-  while (arg != NULL) {
-    int len_of_arg = strlen(arg);
-    argLengths[index] = len_of_arg + 1; // accounts for null terminator
-    memcpy(buf + index, arg, len_of_arg);
-    //adding the null terminator
-    buf[index + len_of_arg] = '\0';
-    index += len_of_arg + 1;
-    arg = strtok_r(NULL, " ", &save_ptr);
+  int newcount = 0;
+  // printf("parsing through file_name to figure out arguments \n");
+  // moving all literal arguments to the stack
+  while (cur_arg != NULL) {
+    // printf("%d'th argument is %s", count, cur_arg);
+    size_t len_cur_arg = strlen(cur_arg) + 1;
+    *esp -= len_cur_arg;
+    args[newcount] = memcpy(*esp, cur_arg, len_cur_arg);
+    newcount++;
+    total_len_args += len_cur_arg;
+    cur_arg = strtok_r(NULL, " ", &saveptr_first);
   }
-  /* 
-  starting from the back most character, 'o' in the above example, iterate right to left
-  */
-  int curr_arg_length = 1; //starts at 1
-  for (int i = length_of_args + argc - 2; i >= 0; i--) {
-    if (buf[i] == '\0') {
-      *esp -= curr_arg_length;
-      memcpy(*esp, buf[i + 1], curr_arg_length);
-      curr_arg_length = 0;
-    }
-    if (i == 0) {
-      //this is an edge case for the first arg
-      curr_arg_length += 1;
-      *esp -= curr_arg_length;
-      memcpy(*esp, buf[i], curr_arg_length);
-      curr_arg_length = 0;
-    }
-    curr_arg_length += 1;
+
+  // stack-align below
+
+  // insert code here to calculate how much to stack align by
+  int stack_align_val =
+      (16 -
+       ((total_len_args + ((count + 1) * sizeof(char*)) + sizeof(int) + sizeof(char**)) % 16)) %
+      16;
+  // if (stack_align_val > 0) {
+  //   *esp -= 32 - stack_align_val;
+  // } else if (stack_align_val == 0) {
+  //   *esp -= stack_align_val;
+  // }
+  *esp -= stack_align_val;
+
+  // putting null after stack aligning
+  *esp -= sizeof(void*);
+  memset(*esp, '0', sizeof(void*));
+
+  // iterating backwards to add to stack the pointers held in teh args array
+  for (int i = count - 1; i >= 0; i--) {
+    size_t size = sizeof(char*);
+    *esp -= size;
+    memcpy(*esp, &args[i], size);
   }
-  /*
-  at this point our stack should have the args pushed onto it. in other words SHOULD LOOK like this:
 
-   Address         Name         Data        Type
-  0xbffffffc   argv[3][...]    bar\0       char[4]
-  0xbffffff8   argv[2][...]    foo\0       char[4]
-  0xbffffff5   argv[1][...]    -l\0        char[3]
-  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-  */
+  // adding argv
+  char** temp = (char**)(*esp);
+  *esp -= sizeof(char*);
+  memcpy(*esp, &temp, sizeof(char**));
+  // *esp = (*esp + 4);
 
-  /*
-  argc * 4 (each is a pointer of 4 bytes)
-  need to also include:
-  -  4 bytes for null pointer
-  - 4 bytes for argv
-  - 4 bytes for argc (int value)
-  
-  */
-  int num_bytes_to_add = (argc + 3) * 4;
-  unsigned int esp_ptr = (unsigned int)*esp;
-  int stack_align_bytes = (16 - ((esp_ptr + num_bytes_to_add) % 16)) % 16;
-  *esp -= stack_align_bytes;
-  /*
-  
-  our stack should look like this: 
-  0xbffffffc   argv[3][...]    bar\0       char[4]
-  0xbffffff8   argv[2][...]    foo\0       char[4]
-  0xbffffff5   argv[1][...]    -l\0        char[3]
-  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-  0xbfffffec   stack-align       0         uint8_t
-  */
-
-  /* 
-  before we start anything we will add the NULL pointer;
-  */
-  *esp -= sizeof(void*);  // first move esp down 4 bytes
-  *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
-
-  /*
-   Address         Name         Data        Type
-  0xbffffffc   argv[3][...]    bar\0       char[4]
-  0xbffffff8   argv[2][...]    foo\0       char[4]
-  0xbffffff5   argv[1][...]    -l\0        char[3]
-  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-  0xbfffffec   stack-align       0         uint8_t
-  0xbfffffe8   argv[4]           0         char *     <------ added this here
-  */
-  //offset is meant to represnt the number of bytes of all the ^
-  int offset = length_of_args + argc + stack_align_bytes + 4;
-  int backoffset = 0;
-  for (int i = argc - 1; i >= 0; i--) {
-    backoffset += argLengths[i];
-    void* new_address = (void*)((char*)(*esp) + offset - backoffset);
-    //backoffset is used to point to the beggining of the memory address of what we want
-    *esp -= sizeof(char*); // decrment by 4 bytes for ptr
-    *esp = new_address;    //add the value to the stack
-    offset += 4; // need to account for 4 bytes each time from the prev pointer that was added
-  }
-  /*
-   Address         Name         Data        Type
-  0xbffffffc   argv[3][...]    bar\0       char[4]
-  0xbffffff8   argv[2][...]    foo\0       char[4]
-  0xbffffff5   argv[1][...]    -l\0        char[3]
-  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-  0xbfffffec   stack-align       0         uint8_t
-  0xbfffffe8   argv[4]           0         char *
-  0xbfffffe4   argv[3]        0xbffffffc   char *
-  0xbfffffe0   argv[2]        0xbffffff8   char *
-  0xbfffffdc   argv[1]        0xbffffff5   char *
-  0xbfffffd8   argv[0]        0xbfffffed   char *
-  
-  how our stack should look at this point
-  */
-  //adding in argv
-  void* argv = (void*)((char*)(*esp));
-
-  *esp -= sizeof(char**);
-  *esp = argv;
-
-  //adding in argc
+  // adding argc
   *esp -= sizeof(int);
-  *esp = argc;
+  memcpy(*esp, &count, sizeof(int));
+  // hex_dump((uint8_t*)PHYS_BASE - 432, args, 200, true);
 
-  /*
-  NEED TO PUSH RETRUN ADDRESS HERE. idk how yet
-  
-  */
+  // push fake return address
+  *esp -= sizeof(int);
+  memset(*esp, 0x45, sizeof(int));
 }
+// void setup_stack_helper(void** esp, const char* file_name) {
+
+//   int argc = 0;
+//   int length_of_args = 0;
+//   char* save_ptr;
+//   char* arg;
+
+//   /*
+//   this code snippet just gets the total number of bytes of our strings (excluding the null terminators)
+//   as well as the number of args itself (argc) which we can then use to compute the additional
+//   number of bytes needed for those null terminators
+//   */
+//   arg = strtok_r(file_name, " ", &save_ptr);
+//   while (arg != NULL) {
+//     argc += 1;
+//     length_of_args += strlen(arg);
+//     arg = strtok_r(NULL, " ", &save_ptr);
+//   }
+//   //create a buffer array that we will use to be able to read args in reverse
+//   char buf[length_of_args + argc];
+//   int argLengths[argc];
+
+//   /*
+//   all we did here is add the string into a char buffer:
+
+//   ex:
+
+//   foo bar hello
+//   |
+//   V
+//                                         i
+//   [f, o, o, \0, b, a, r, \0, h, e, l, l, o, \0]
+//   */
+//   arg = strtok_r(file_name, " ", &save_ptr);
+//   int index = 0;
+//   while (arg != NULL) {
+//     int len_of_arg = strlen(arg);
+//     argLengths[index] = len_of_arg + 1; // accounts for null terminator
+//     memcpy(buf + index, arg, len_of_arg);
+//     //adding the null terminator
+//     buf[index + len_of_arg] = '\0';
+//     index += len_of_arg + 1;
+//     arg = strtok_r(NULL, " ", &save_ptr);
+//   }
+//   /*
+//   starting from the back most character, 'o' in the above example, iterate right to left
+//   */
+//   int curr_arg_length = 1; //starts at 1
+//   for (int i = length_of_args + argc - 2; i >= 0; i--) {
+//     if (buf[i] == '\0') {
+//       *esp -= curr_arg_length;
+//       memcpy(*esp, buf[i + 1], curr_arg_length);
+//       curr_arg_length = 0;
+//     }
+//     if (i == 0) {
+//       //this is an edge case for the first arg
+//       curr_arg_length += 1;
+//       *esp -= curr_arg_length;
+//       memcpy(*esp, buf[i], curr_arg_length);
+//       curr_arg_length = 0;
+//     }
+//     curr_arg_length += 1;
+//   }
+//   /*
+//   at this point our stack should have the args pushed onto it. in other words SHOULD LOOK like this:
+
+//    Address         Name         Data        Type
+//   0xbffffffc   argv[3][...]    bar\0       char[4]
+//   0xbffffff8   argv[2][...]    foo\0       char[4]
+//   0xbffffff5   argv[1][...]    -l\0        char[3]
+//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+//   */
+
+//   /*
+//   argc * 4 (each is a pointer of 4 bytes)
+//   need to also include:
+//   -  4 bytes for null pointer
+//   - 4 bytes for argv
+//   - 4 bytes for argc (int value)
+
+//   */
+//   int num_bytes_to_add = (argc + 3) * 4;
+//   unsigned int esp_ptr = (unsigned int)*esp;
+//   int stack_align_bytes = (16 - ((esp_ptr + num_bytes_to_add) % 16)) % 16;
+//   *esp -= stack_align_bytes;
+//   /*
+
+//   our stack should look like this:
+//   0xbffffffc   argv[3][...]    bar\0       char[4]
+//   0xbffffff8   argv[2][...]    foo\0       char[4]
+//   0xbffffff5   argv[1][...]    -l\0        char[3]
+//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+//   0xbfffffec   stack-align       0         uint8_t
+//   */
+
+//   /*
+//   before we start anything we will add the NULL pointer;
+//   */
+//   *esp -= sizeof(void*);  // first move esp down 4 bytes
+//   *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
+
+//   /*
+//    Address         Name         Data        Type
+//   0xbffffffc   argv[3][...]    bar\0       char[4]
+//   0xbffffff8   argv[2][...]    foo\0       char[4]
+//   0xbffffff5   argv[1][...]    -l\0        char[3]
+//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+//   0xbfffffec   stack-align       0         uint8_t
+//   0xbfffffe8   argv[4]           0         char *     <------ added this here
+//   */
+//   //offset is meant to represnt the number of bytes of all the ^
+//   int offset = length_of_args + argc + stack_align_bytes + 4;
+//   int backoffset = 0;
+//   for (int i = argc - 1; i >= 0; i--) {
+//     backoffset += argLengths[i];
+//     void* new_address = (void*)((char*)(*esp) + offset - backoffset);
+//     //backoffset is used to point to the beggining of the memory address of what we want
+//     *esp -= sizeof(char*); // decrment by 4 bytes for ptr
+//     *esp = new_address;    //add the value to the stack
+//     offset += 4; // need to account for 4 bytes each time from the prev pointer that was added
+//   }
+//   /*
+//    Address         Name         Data        Type
+//   0xbffffffc   argv[3][...]    bar\0       char[4]
+//   0xbffffff8   argv[2][...]    foo\0       char[4]
+//   0xbffffff5   argv[1][...]    -l\0        char[3]
+//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+//   0xbfffffec   stack-align       0         uint8_t
+//   0xbfffffe8   argv[4]           0         char *
+//   0xbfffffe4   argv[3]        0xbffffffc   char *
+//   0xbfffffe0   argv[2]        0xbffffff8   char *
+//   0xbfffffdc   argv[1]        0xbffffff5   char *
+//   0xbfffffd8   argv[0]        0xbfffffed   char *
+
+//   how our stack should look at this point
+//   */
+//   //adding in argv
+//   void* argv = (void*)((char*)(*esp));
+
+//   *esp -= sizeof(char**);
+//   *esp = argv;
+
+//   //adding in argc
+//   *esp -= sizeof(int);
+//   *esp = argc;
+
+//   /*
+//   NEED TO PUSH RETRUN ADDRESS HERE. idk how yet
+
+//   */
+// }
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 
@@ -703,6 +774,7 @@ static bool setup_stack(void** esp, const char* file_name) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
     if (success) {
       *esp = PHYS_BASE;
+      // setup_stack_helper(esp, file_name);
       setup_stack_helper(esp, file_name);
     } else {
       palloc_free_page(kpage);
