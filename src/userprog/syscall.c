@@ -165,6 +165,7 @@ int open(const char* filename) {
   /*
   IMPORTANT: for later, might need to change implementation FOR LOCKING. for now, we assume fine since we use global lock for all file syscalls
   */
+
   info->fd = thread_current()->pcb->fd_counter;
   thread_current()->pcb->fd_counter += 1;
 
@@ -368,15 +369,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     lock_acquire(&file_sys_lock);
     if (sys_val == SYS_WRITE) {
       //1 for is valid Arg because this is a buffer!
-      isValidArg((void*)safe_args[1], 1);
+      isValidArg((void*)safe_args[1], 0);
       f->eax = write((int)safe_args[0], (const void*)safe_args[1], (unsigned int)safe_args[2]);
 
     } else if (sys_val == SYS_REMOVE) {
-      isValidArg((void*)safe_args[0], 1);
+      isValidArg((void*)safe_args[0], 0);
       f->eax = remove((const char*)safe_args[0]);
 
     } else if (sys_val == SYS_OPEN) {
-      isValidArg((void*)safe_args[0], 1);
+      isValidArg((void*)safe_args[0], 0);
       f->eax = open((const char*)safe_args[0]);
 
     } else if (sys_val == SYS_FILESIZE) {
@@ -392,7 +393,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = tell(fd);
 
     } else if (sys_val == SYS_CREATE) {
-      isValidArg((void*)safe_args[0], 1);
+      isValidArg((void*)safe_args[0], 0);
 
       const char* filename = (const char*)safe_args[0];
       unsigned int size = (unsigned int)safe_args[1];
@@ -404,7 +405,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       seek(fd, pos);
 
     } else if (sys_val == SYS_READ) {
-      isValidArg((void*)safe_args[1], 1);
+      isValidArg((void*)safe_args[1], 0);
       int fd = (int)safe_args[0];
       const void* buffer = (const void*)safe_args[1];
       unsigned int size = (unsigned int)safe_args[2];
@@ -421,7 +422,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   } else if (sys_val == SYS_HALT) {
     halt();
   } else if (sys_val == SYS_EXEC) {
-    isValidArg((void*)safe_args[0], 1);
+    isValidArg((void*)safe_args[0], 0);
     f->eax = exec((const char*)safe_args[0]);
   } else if (sys_val == SYS_WAIT) {
     f->eax = wait((pid_t)safe_args[0]);

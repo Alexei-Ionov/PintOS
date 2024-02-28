@@ -62,8 +62,7 @@ struct process_metadata* process_execute(const char* file_name) {
 
   struct process_metadata* metadata = malloc(sizeof(struct process_metadata));
   if (metadata == NULL) {
-    //TO DO
-    printf("error here 1");
+    exit(-1);
   }
   sema_init(&(metadata->sema), 0);
   metadata->ref_cnt = 2;
@@ -85,6 +84,13 @@ struct process_metadata* process_execute(const char* file_name) {
   tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)args);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+
+  // sema_down(&(shared_data->sema)); //waits for child to get to loading
+  // if (!shared_data->load_successful) {
+  //   free(shared_data);
+  //   free(file); //free the command line args?
+  //   exit(-1);
+  // }
   metadata->pid = (pid_t)tid;
   return metadata;
 }
@@ -120,12 +126,12 @@ static void start_process(void* arg) {
     t->pcb->fd_counter = 3;
     t->pcb->file_list = malloc(sizeof(struct list));
     if (t->pcb->file_list == NULL) {
-      printf("error here 2");
+      exit(-1);
     }
     list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
     t->pcb->children_list = malloc(sizeof(struct list));
     if (t->pcb->children_list == NULL) {
-      printf("error here 3");
+      exit(-1);
     }
     list_init(t->pcb->children_list);
     t->pcb->own_metadata = shared_data;
@@ -755,7 +761,7 @@ void setup_stack_helper(void** esp, const char* file_name) {
 
 //   //adding in argc
 //   *esp -= sizeof(int);
-//   *esp = argc;
+//   **esp = argc;
 
 //   /*
 //   NEED TO PUSH RETRUN ADDRESS HERE. idk how yet
