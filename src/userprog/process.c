@@ -542,12 +542,6 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 void setup_stack_helper(void** esp, const char* file_name) {
 
-  /* 
-  before we start anything we will add NULL value to the TOP of our stack which will later be pointed to
-  */
-  *esp -= sizeof(void*);  // first move esp down 4 bytes
-  *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
-
   int argc = 0;
   int length_of_args = 0;
   char* save_ptr;
@@ -637,6 +631,12 @@ void setup_stack_helper(void** esp, const char* file_name) {
   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
   0xbfffffec   stack-align       0         uint8_t
   */
+
+  /* 
+  before we start anything we will add the NULL pointer;
+  */
+  *esp -= sizeof(void*);  // first move esp down 4 bytes
+  *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
 }
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
