@@ -21,6 +21,7 @@
 #include "userprog/pagedir.h"
 #include "threads/vaddr.h"
 #include "devices/shutdown.h" //for halt()
+#include "lib/float.c"        // for calling approximation
 
 static void syscall_handler(struct intr_frame*);
 
@@ -394,6 +395,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       const void* buffer = (const void*)safe_args[1];
       unsigned int size = (unsigned int)safe_args[2];
       f->eax = read(fd, buffer, size);
+    } else if (sys_val == SYS_COMPUTE_E) {
+      int n = (int)safe_args[0];
+      f->eax = sys_sum_to_e(n);
     }
     lock_release(&file_sys_lock);
   }
