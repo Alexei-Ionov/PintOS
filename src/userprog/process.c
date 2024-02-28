@@ -591,7 +591,7 @@ void setup_stack_helper(void** esp, const char* file_name) {
   starting from the back most character, 'o' in the above example, iterate right to left
   */
   int curr_arg_length = 1; //starts at 1
-  for (int i = length_of_args - 1; i >= 0; i--) {
+  for (int i = length_of_args + argc - 2; i >= 0; i--) {
     if (buf[i] == '\0') {
       *esp -= curr_arg_length;
       memcpy(*esp, buf[i + 1], curr_arg_length);
