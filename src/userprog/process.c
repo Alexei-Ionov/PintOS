@@ -363,6 +363,12 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   bool success = false;
   int i;
 
+  /* Strtoking filename */
+  char* saveptr;
+  char filenamecopy[strlen(file_name) + 1];
+  strlcpy(filenamecopy, file_name, strlen(file_name) + 1);
+  char* filename_start = strtok_r(filenamecopy, " ", &saveptr);
+
   /* Allocate and activate page directory. */
   t->pcb->pagedir = pagedir_create();
   if (t->pcb->pagedir == NULL)
@@ -370,9 +376,9 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   process_activate();
 
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = filesys_open(filename_start);
   if (file == NULL) {
-    printf("load: %s: open failed\n", file_name);
+    printf("load: %s: open failed\n", filename_start);
     goto done;
   }
   //DENIES WRITING TO EXECUTABLE
@@ -382,7 +388,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
       ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024) {
-    printf("load: %s: error loading executable\n", file_name);
+    printf("load: %s: error loading executable\n", filename_start);
     goto done;
   }
 
