@@ -655,7 +655,6 @@ void setup_stack_helper(void** esp, const char* file_name) {
   int backoffset = 0;
   for (int i = argc - 1; i >= 0; i--) {
     backoffset += argLengths[i];
-
     void* new_address = (void*)((char*)(*esp) + offset - backoffset);
     //backoffset is used to point to the beggining of the memory address of what we want
     *esp -= sizeof(char*); // decrment by 4 bytes for ptr
@@ -678,7 +677,7 @@ void setup_stack_helper(void** esp, const char* file_name) {
   how our stack should look at this point
   */
   //adding in argv
-  void* argv = (void*)((char*)(*esp) + 4);
+  void* argv = (void*)((char*)(*esp));
 
   *esp -= sizeof(char**);
   *esp = argv;
