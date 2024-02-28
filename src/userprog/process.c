@@ -540,8 +540,107 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
   return true;
 }
 
+void setup_stack_helper(void** esp, const char* file_name) {
+
+  /* 
+  before we start anything we will add NULL value to the TOP of our stack which will later be pointed to
+  */
+  *esp -= sizeof(void*);  // first move esp down 4 bytes
+  *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
+
+  int argc = 0;
+  int length_of_args = 0;
+  char* save_ptr;
+  char* arg;
+
+  /*
+  this code snippet just gets the total number of bytes of our strings (excluding the null terminators)
+  as well as the number of args itself (argc) which we can then use to compute the additional 
+  number of bytes needed for those null terminators
+  */
+  arg = strtok_r(file_name, " ", &save_ptr);
+  while (arg != NULL) {
+    argc += 1;
+    length_of_args += strlen(arg);
+    arg = strtok_r(NULL, " ", &save_ptr);
+  }
+  //create a buffer array that we will use to be able to read args in reverse
+  char buf[length_of_args + argc];
+
+  /*
+  all we did here is add the string into a char buffer: 
+
+  ex: 
+
+  foo bar hello
+  |
+  V
+  [f, o, o, \0, b, a, r, \0, h, e, l, l, o, \0]
+  */
+  arg = strtok_r(file_name, " ", &save_ptr);
+  int index = 0;
+  while (arg != NULL) {
+    int len_of_arg = strlen(arg);
+    memcpy(buf + index, arg, len_of_arg);
+    //adding the null terminator
+    buf[index + len_of_arg] = '\0';
+    index += len_of_arg + 1;
+    arg = strtok_r(NULL, " ", &save_ptr);
+  }
+  /* 
+  starting from the back most character, 'o' in the above example, iterate right to left
+  */
+  int curr_arg_length = 1; //starts at 1
+  for (int i = length_of_args - 1; i >= 0; i--) {
+    if (buf[i] == '\0') {
+      *esp -= curr_arg_length;
+      memcpy(*esp, buf[i + 1], curr_arg_length);
+      curr_arg_length = 0;
+    }
+    if (i == 0) {
+      //this is an edge case for the first arg
+      curr_arg_length += 1;
+      *esp -= curr_arg_length;
+      memcpy(*esp, buf[i], curr_arg_length);
+      curr_arg_length = 0;
+    }
+    curr_arg_length += 1;
+  }
+  /*
+  at this point our stack should have the args pushed onto it. in other words SHOULD LOOK like this:
+
+   Address         Name         Data        Type
+  0xbffffffc   argv[3][...]    bar\0       char[4]
+  0xbffffff8   argv[2][...]    foo\0       char[4]
+  0xbffffff5   argv[1][...]    -l\0        char[3]
+  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+  */
+
+  /*
+  argc * 4 (each is a pointer of 4 bytes)
+  need to also include:
+  -  4 bytes for null pointer
+  - 4 bytes for argv
+  - 4 bytes for argc (int value)
+  
+  */
+  int num_bytes_to_add = (argc + 3) * 4;
+  unsigned int esp_ptr = (unsigned int)*esp;
+  int stack_align_bytes = (16 - ((esp_ptr + num_bytes_to_add) % 16)) % 16;
+  *esp -= stack_align_bytes;
+  /*
+  
+  our stack should look like this: 
+  0xbffffffc   argv[3][...]    bar\0       char[4]
+  0xbffffff8   argv[2][...]    foo\0       char[4]
+  0xbffffff5   argv[1][...]    -l\0        char[3]
+  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+  0xbfffffec   stack-align       0         uint8_t
+  */
+}
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
+
 static bool setup_stack(void** esp, const char* file_name) {
   uint8_t* kpage;
   bool success = false;
@@ -549,10 +648,12 @@ static bool setup_stack(void** esp, const char* file_name) {
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
-    if (success)
-      *esp = PHYS_BASE - 20;
-    else
+    if (success) {
+      *esp = PHYS_BASE;
+      setup_stack_helper(esp, file_name);
+    } else {
       palloc_free_page(kpage);
+    }
   }
   return success;
 }

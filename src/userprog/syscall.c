@@ -350,7 +350,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   /*
   ARGUMENT VALIDATION: 
   1.) check if ptrs are not NULL
-  2.) check if ptrs lie in USER SPACE
+  2.) check if ptrs lie in USER SPAxCE
   3.) PAGE BOUNDARY naunces
 
   */
