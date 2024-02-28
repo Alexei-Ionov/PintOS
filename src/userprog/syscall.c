@@ -84,14 +84,6 @@ void halt(void) { shutdown_power_off(); }
 pid_t exec(const char* file) {
 
   struct process_metadata* shared_data = process_execute(file);
-
-  sema_down(&(shared_data->sema)); //waits for child to get to loading
-  if (!shared_data->load_successful) {
-    free(shared_data);
-    free(file); //free the command line args?
-    exit(-1);
-  }
-  //other wise load is successful
   struct list* c_list = thread_current()->pcb->children_list;
   list_push_back(c_list, &(shared_data->elem));
   return shared_data->pid;
@@ -181,14 +173,6 @@ int filesize(int fd) {
   }
   return file_length(info->f);
 }
-
-// /*
-
-// IMPORTANT:
-
-// need to fix the below read() function. not sure if this is correct imlpementation since input_getc() just waits for input
-
-// */
 int read(int fd, void* buffer, unsigned size) {
   if (fd == 0) { //READING FROM STDIN
     unsigned cnt = 0;
@@ -352,9 +336,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   // at this point all the args are safe!
   uint32_t* safe_args[3];
-  safe_args[0] = args[1];
-  safe_args[1] = args[2];
-  safe_args[2] = args[3];
+  safe_args[0] = (uint32_t*)args[1];
+  safe_args[1] = (uint32_t*)args[2];
+  safe_args[2] = (uint32_t*)args[3];
 
   /*
    * The following print statement, if uncommented, will print out the syscall

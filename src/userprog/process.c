@@ -80,17 +80,23 @@ struct process_metadata* process_execute(const char* file_name) {
   args->metadata = metadata;
   args->file_name = fn_copy;
 
+  /* Strtoking filename */
+  char* saveptr;
+  char filenamecopy[strlen(file_name) + 1];
+  strlcpy(filenamecopy, file_name, strlen(file_name) + 1);
+  char* filename_start = strtok_r(filenamecopy, " ", &saveptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, (void*)args);
+  tid = thread_create(filename_start, PRI_DEFAULT, start_process, (void*)args);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
 
-  // sema_down(&(shared_data->sema)); //waits for child to get to loading
-  // if (!shared_data->load_successful) {
-  //   free(shared_data);
-  //   free(file); //free the command line args?
-  //   exit(-1);
-  // }
+  sema_down(&(metadata->sema)); //waits for child to get to loading
+  if (!metadata->load_successful) {
+    free(metadata);
+    // free(file); //free the command line args?
+    exit(-1);
+  }
   metadata->pid = (pid_t)tid;
   return metadata;
 }
@@ -593,7 +599,7 @@ void setup_stack_helper(void** esp, const char* file_name) {
 
   // putting null after stack aligning
   *esp -= sizeof(void*);
-  memset(*esp, '0', sizeof(void*));
+  memset(*esp, 0, sizeof(void*));
 
   // iterating backwards to add to stack the pointers held in teh args array
   for (int i = count - 1; i >= 0; i--) {
