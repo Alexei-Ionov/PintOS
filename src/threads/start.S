@@ -24,7 +24,7 @@ start:
 
 # The loader called into us with CS = 0x2000, SS = 0x0000, ESP = 0xf000,
 # but we should initialize the other segment registers.
-	FINIT 
+	
 	mov $0x2000, %ax
 	mov %ax, %ds
 	mov %ax, %es
@@ -147,7 +147,7 @@ start:
 #       We don't (yet) support floating point.
 
 	movl %cr0, %eax
-	orl $CR0_PE | CR0_PG | CR0_WP, %eax
+	orl $CR0_PE | CR0_PG | CR0_WP | CR0_EM, %eax
 	movl %eax, %cr0
 
 # We're now in protected mode in a 16-bit segment.  The CPU still has

@@ -24,13 +24,7 @@ intr_entry:
 	pushl %fs
 	pushl %gs
 	pushal
-   /*
-   first decrement the stack by 108 bytes then save the FPU 
-   */
-   sub $108, %esp
-   FSAVE (%esp)
-
-
+   
 	/* Set up kernel environment. */
 	cld			/* String instructions go upward. */
 	mov $SEL_KDSEG, %eax	/* Initialize segment registers. */
