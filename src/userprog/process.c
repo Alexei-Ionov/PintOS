@@ -560,6 +560,7 @@ void setup_stack_helper(void** esp, const char* file_name) {
   }
   //create a buffer array that we will use to be able to read args in reverse
   char buf[length_of_args + argc];
+  int argLengths[argc];
 
   /*
   all we did here is add the string into a char buffer: 
@@ -569,12 +570,14 @@ void setup_stack_helper(void** esp, const char* file_name) {
   foo bar hello
   |
   V
+                                        i
   [f, o, o, \0, b, a, r, \0, h, e, l, l, o, \0]
   */
   arg = strtok_r(file_name, " ", &save_ptr);
   int index = 0;
   while (arg != NULL) {
     int len_of_arg = strlen(arg);
+    argLengths[index] = len_of_arg + 1; // accounts for null terminator
     memcpy(buf + index, arg, len_of_arg);
     //adding the null terminator
     buf[index + len_of_arg] = '\0';
@@ -637,6 +640,57 @@ void setup_stack_helper(void** esp, const char* file_name) {
   */
   *esp -= sizeof(void*);  // first move esp down 4 bytes
   *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
+
+  /*
+   Address         Name         Data        Type
+  0xbffffffc   argv[3][...]    bar\0       char[4]
+  0xbffffff8   argv[2][...]    foo\0       char[4]
+  0xbffffff5   argv[1][...]    -l\0        char[3]
+  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+  0xbfffffec   stack-align       0         uint8_t
+  0xbfffffe8   argv[4]           0         char *     <------ added this here
+  */
+  //offset is meant to represnt the number of bytes of all the ^
+  int offset = length_of_args + argc + stack_align_bytes + 4;
+  int backoffset = 0;
+  for (int i = argc - 1; i >= 0; i--) {
+    backoffset += argLengths[i];
+
+    void* new_address = (void*)((char*)(*esp) + offset - backoffset);
+    //backoffset is used to point to the beggining of the memory address of what we want
+    *esp -= sizeof(char*); // decrment by 4 bytes for ptr
+    *esp = new_address;    //add the value to the stack
+    offset += 4; // need to account for 4 bytes each time from the prev pointer that was added
+  }
+  /*
+   Address         Name         Data        Type
+  0xbffffffc   argv[3][...]    bar\0       char[4]
+  0xbffffff8   argv[2][...]    foo\0       char[4]
+  0xbffffff5   argv[1][...]    -l\0        char[3]
+  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+  0xbfffffec   stack-align       0         uint8_t
+  0xbfffffe8   argv[4]           0         char *
+  0xbfffffe4   argv[3]        0xbffffffc   char *
+  0xbfffffe0   argv[2]        0xbffffff8   char *
+  0xbfffffdc   argv[1]        0xbffffff5   char *
+  0xbfffffd8   argv[0]        0xbfffffed   char *
+  
+  how our stack should look at this point
+  */
+  //adding in argv
+  void* argv = (void*)((char*)(*esp) + 4);
+
+  *esp -= sizeof(char**);
+  *esp = argv;
+
+  //adding in argc
+  *esp -= sizeof(int);
+  *esp = argc;
+
+  /*
+  NEED TO PUSH RETRUN ADDRESS HERE. idk how yet
+  
+  */
 }
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
