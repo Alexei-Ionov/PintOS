@@ -18,13 +18,12 @@
 .func intr_entry
 intr_entry:
 	/* Save caller's registers. */
-
 	pushl %ds
 	pushl %es
 	pushl %fs
 	pushl %gs
 	pushal
-   
+
 	/* Set up kernel environment. */
 	cld			/* String instructions go upward. */
 	mov $SEL_KDSEG, %eax	/* Initialize segment registers. */

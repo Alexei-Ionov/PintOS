@@ -19,13 +19,10 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-//allows us to use helper functions for cleaning
-#include "userprog/syscall.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
-
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
@@ -53,64 +50,29 @@ void userprog_init(void) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
-struct process_metadata* process_execute(const char* file_name) {
-
+pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
 
   sema_init(&temporary, 0);
-
-  struct process_metadata* metadata = malloc(sizeof(struct process_metadata));
-  if (metadata == NULL) {
-    exit(-1);
-  }
-  sema_init(&(metadata->sema), 0);
-  metadata->ref_cnt = 2;
-  metadata->waiting = false;
-  metadata->load_successful = false;
-  lock_init(&(metadata->metadata_lock));
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
-  struct process_create_args* args =
-      (struct process_create_args*)malloc(sizeof(struct process_create_args));
-  args->metadata = metadata;
-  args->file_name = fn_copy;
-
-  /* Strtoking filename */
-  char* saveptr;
-  char filenamecopy[strlen(file_name) + 1];
-  strlcpy(filenamecopy, file_name, strlen(file_name) + 1);
-  char* filename_start = strtok_r(filenamecopy, " ", &saveptr);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(filename_start, PRI_DEFAULT, start_process, (void*)args);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
-
-  sema_down(&(metadata->sema)); //waits for child to get to loading
-  if (!metadata->load_successful) {
-    free(metadata);
-    // free(file); //free the command line args?
-    exit(-1);
-  }
-  metadata->pid = (pid_t)tid;
-  return metadata;
+  return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* arg) {
-  /*
-  destructure args from struct 
-  */
-  struct process_create_args* args = (struct process_create_args*)arg;
-  const char* file_name = args->file_name;
-  struct process_metadata* shared_data = args->metadata;
-
+static void start_process(void* file_name_) {
+  char* file_name = (char*)file_name_;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -118,6 +80,7 @@ static void start_process(void* arg) {
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
+
   /* Initialize process control block */
   if (success) {
     // Ensure that timer_interrupt() -> schedule() -> process_activate()
@@ -128,20 +91,8 @@ static void start_process(void* arg) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-    // initializes FD counter to 3, avoiding 0,1,2 for STDIN, STDOUT, STDERROR respectively
-    t->pcb->fd_counter = 3;
-    t->pcb->file_list = malloc(sizeof(struct list));
-    if (t->pcb->file_list == NULL) {
-      exit(-1);
-    }
-    list_init(t->pcb->file_list); // initalizes our processes' file descriptor list
-    t->pcb->children_list = malloc(sizeof(struct list));
-    if (t->pcb->children_list == NULL) {
-      exit(-1);
-    }
-    list_init(t->pcb->children_list);
-    t->pcb->own_metadata = shared_data;
   }
+
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -149,17 +100,8 @@ static void start_process(void* arg) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
-    /* 
-    sema up the shared semaphore so that parent process knows that loading was successful!
-    */
-    if (success) {
-      shared_data->load_successful = true;
-    } else {
-      shared_data->load_successful = false;
-      shared_data->exit_status = -1;
-    }
-    sema_up(&(shared_data->sema));
   }
+
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
     // Avoid race where PCB is freed before t->pcb is set to NULL
@@ -196,13 +138,13 @@ static void start_process(void* arg) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(struct process_metadata* UNUSED) {
+int process_wait(pid_t child_pid UNUSED) {
   sema_down(&temporary);
   return 0;
 }
 
 /* Free the current process's resources. */
-void process_exit(int status) {
+void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
@@ -210,35 +152,6 @@ void process_exit(int status) {
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
-  }
-  /*
-  destroy our file descriptor table first 
-  
-  clean up shared metadata structs w/ children
-  */
-  // destroy_fd_table();
-  // housekeep_metadata_list();
-
-  /*
-  afterward, clean up the metadata struct that the curr process shares w/ its parent
-  */
-  destroy_fd_table();
-  housekeep_metadata_list();
-  struct process_metadata* shared_data = cur->pcb->own_metadata;
-  shared_data->exit_status = status;
-
-  lock_acquire(&(shared_data->metadata_lock));
-  shared_data->ref_cnt -= 1;
-  if (shared_data->ref_cnt == 0) {
-    //technically we don't need to release the lock
-    //here since no one needs the info anymore
-    free(shared_data);
-  } else {
-    lock_release(&(shared_data->metadata_lock));
-  }
-
-  if (shared_data->waiting) {
-    sema_up(&(shared_data->sema));
   }
 
   /* Destroy the current process's page directory and switch back
@@ -346,7 +259,7 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void** esp, const char* file_name);
+static bool setup_stack(void** esp);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
@@ -363,12 +276,6 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   bool success = false;
   int i;
 
-  /* Strtoking filename */
-  char* saveptr;
-  char filenamecopy[strlen(file_name) + 1];
-  strlcpy(filenamecopy, file_name, strlen(file_name) + 1);
-  char* filename_start = strtok_r(filenamecopy, " ", &saveptr);
-
   /* Allocate and activate page directory. */
   t->pcb->pagedir = pagedir_create();
   if (t->pcb->pagedir == NULL)
@@ -376,19 +283,17 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   process_activate();
 
   /* Open executable file. */
-  file = filesys_open(filename_start);
+  file = filesys_open(file_name);
   if (file == NULL) {
-    printf("load: %s: open failed\n", filename_start);
+    printf("load: %s: open failed\n", file_name);
     goto done;
   }
-  //DENIES WRITING TO EXECUTABLE
-  file_deny_write(file);
 
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
       ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024) {
-    printf("load: %s: error loading executable\n", filename_start);
+    printf("load: %s: error loading executable\n", file_name);
     goto done;
   }
 
@@ -443,7 +348,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   }
 
   /* Set up stack. */
-  if (!setup_stack(esp, file_name))
+  if (!setup_stack(esp))
     goto done;
 
   /* Start address. */
@@ -557,246 +462,20 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
   }
   return true;
 }
-void setup_stack_helper(void** esp, const char* file_name) {
-  // figuring out argc value
-  int count = 0;
-  int total_len_args = 0;
-  char* saveptr_count;
-  char file_name_copy[strlen(file_name) + 1];
-  strlcpy(file_name_copy, file_name, strlen(file_name) + 1);
-  char* cur_arg_count = strtok_r(file_name_copy, " ", &saveptr_count);
-  char* saveptr_first;
-  char* cur_arg = strtok_r(file_name, " ", &saveptr_first);
 
-  while (cur_arg_count != NULL) {
-    count++;
-    cur_arg_count = strtok_r(NULL, " ", &saveptr_count);
-  }
-
-  // args should hold the ADDRESSES of where the esp starts for each argument
-  char* args[count];
-
-  int newcount = 0;
-  // printf("parsing through file_name to figure out arguments \n");
-  // moving all literal arguments to the stack
-  while (cur_arg != NULL) {
-    // printf("%d'th argument is %s", count, cur_arg);
-    size_t len_cur_arg = strlen(cur_arg) + 1;
-    *esp -= len_cur_arg;
-    args[newcount] = memcpy(*esp, cur_arg, len_cur_arg);
-    newcount++;
-    total_len_args += len_cur_arg;
-    cur_arg = strtok_r(NULL, " ", &saveptr_first);
-  }
-
-  // stack-align below
-
-  // insert code here to calculate how much to stack align by
-  int stack_align_val =
-      (16 -
-       ((total_len_args + ((count + 1) * sizeof(char*)) + sizeof(int) + sizeof(char**)) % 16)) %
-      16;
-  // if (stack_align_val > 0) {
-  //   *esp -= 32 - stack_align_val;
-  // } else if (stack_align_val == 0) {
-  //   *esp -= stack_align_val;
-  // }
-  *esp -= stack_align_val;
-
-  // putting null after stack aligning
-  *esp -= sizeof(void*);
-  memset(*esp, 0, sizeof(void*));
-
-  // iterating backwards to add to stack the pointers held in teh args array
-  for (int i = count - 1; i >= 0; i--) {
-    size_t size = sizeof(char*);
-    *esp -= size;
-    memcpy(*esp, &args[i], size);
-  }
-
-  // adding argv
-  char** temp = (char**)(*esp);
-  *esp -= sizeof(char*);
-  memcpy(*esp, &temp, sizeof(char**));
-  // *esp = (*esp + 4);
-
-  // adding argc
-  *esp -= sizeof(int);
-  memcpy(*esp, &count, sizeof(int));
-  // hex_dump((uint8_t*)PHYS_BASE - 432, args, 200, true);
-
-  // push fake return address
-  *esp -= sizeof(int);
-  memset(*esp, 0x45, sizeof(int));
-}
-// void setup_stack_helper(void** esp, const char* file_name) {
-
-//   int argc = 0;
-//   int length_of_args = 0;
-//   char* save_ptr;
-//   char* arg;
-
-//   /*
-//   this code snippet just gets the total number of bytes of our strings (excluding the null terminators)
-//   as well as the number of args itself (argc) which we can then use to compute the additional
-//   number of bytes needed for those null terminators
-//   */
-//   arg = strtok_r(file_name, " ", &save_ptr);
-//   while (arg != NULL) {
-//     argc += 1;
-//     length_of_args += strlen(arg);
-//     arg = strtok_r(NULL, " ", &save_ptr);
-//   }
-//   //create a buffer array that we will use to be able to read args in reverse
-//   char buf[length_of_args + argc];
-//   int argLengths[argc];
-
-//   /*
-//   all we did here is add the string into a char buffer:
-
-//   ex:
-
-//   foo bar hello
-//   |
-//   V
-//                                         i
-//   [f, o, o, \0, b, a, r, \0, h, e, l, l, o, \0]
-//   */
-//   arg = strtok_r(file_name, " ", &save_ptr);
-//   int index = 0;
-//   while (arg != NULL) {
-//     int len_of_arg = strlen(arg);
-//     argLengths[index] = len_of_arg + 1; // accounts for null terminator
-//     memcpy(buf + index, arg, len_of_arg);
-//     //adding the null terminator
-//     buf[index + len_of_arg] = '\0';
-//     index += len_of_arg + 1;
-//     arg = strtok_r(NULL, " ", &save_ptr);
-//   }
-//   /*
-//   starting from the back most character, 'o' in the above example, iterate right to left
-//   */
-//   int curr_arg_length = 1; //starts at 1
-//   for (int i = length_of_args + argc - 2; i >= 0; i--) {
-//     if (buf[i] == '\0') {
-//       *esp -= curr_arg_length;
-//       memcpy(*esp, buf[i + 1], curr_arg_length);
-//       curr_arg_length = 0;
-//     }
-//     if (i == 0) {
-//       //this is an edge case for the first arg
-//       curr_arg_length += 1;
-//       *esp -= curr_arg_length;
-//       memcpy(*esp, buf[i], curr_arg_length);
-//       curr_arg_length = 0;
-//     }
-//     curr_arg_length += 1;
-//   }
-//   /*
-//   at this point our stack should have the args pushed onto it. in other words SHOULD LOOK like this:
-
-//    Address         Name         Data        Type
-//   0xbffffffc   argv[3][...]    bar\0       char[4]
-//   0xbffffff8   argv[2][...]    foo\0       char[4]
-//   0xbffffff5   argv[1][...]    -l\0        char[3]
-//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-//   */
-
-//   /*
-//   argc * 4 (each is a pointer of 4 bytes)
-//   need to also include:
-//   -  4 bytes for null pointer
-//   - 4 bytes for argv
-//   - 4 bytes for argc (int value)
-
-//   */
-//   int num_bytes_to_add = (argc + 3) * 4;
-//   unsigned int esp_ptr = (unsigned int)*esp;
-//   int stack_align_bytes = (16 - ((esp_ptr + num_bytes_to_add) % 16)) % 16;
-//   *esp -= stack_align_bytes;
-//   /*
-
-//   our stack should look like this:
-//   0xbffffffc   argv[3][...]    bar\0       char[4]
-//   0xbffffff8   argv[2][...]    foo\0       char[4]
-//   0xbffffff5   argv[1][...]    -l\0        char[3]
-//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-//   0xbfffffec   stack-align       0         uint8_t
-//   */
-
-//   /*
-//   before we start anything we will add the NULL pointer;
-//   */
-//   *esp -= sizeof(void*);  // first move esp down 4 bytes
-//   *((void**)*esp) = NULL; // then, assign NULL to the memory location pointed to by esp
-
-//   /*
-//    Address         Name         Data        Type
-//   0xbffffffc   argv[3][...]    bar\0       char[4]
-//   0xbffffff8   argv[2][...]    foo\0       char[4]
-//   0xbffffff5   argv[1][...]    -l\0        char[3]
-//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-//   0xbfffffec   stack-align       0         uint8_t
-//   0xbfffffe8   argv[4]           0         char *     <------ added this here
-//   */
-//   //offset is meant to represnt the number of bytes of all the ^
-//   int offset = length_of_args + argc + stack_align_bytes + 4;
-//   int backoffset = 0;
-//   for (int i = argc - 1; i >= 0; i--) {
-//     backoffset += argLengths[i];
-//     void* new_address = (void*)((char*)(*esp) + offset - backoffset);
-//     //backoffset is used to point to the beggining of the memory address of what we want
-//     *esp -= sizeof(char*); // decrment by 4 bytes for ptr
-//     *esp = new_address;    //add the value to the stack
-//     offset += 4; // need to account for 4 bytes each time from the prev pointer that was added
-//   }
-//   /*
-//    Address         Name         Data        Type
-//   0xbffffffc   argv[3][...]    bar\0       char[4]
-//   0xbffffff8   argv[2][...]    foo\0       char[4]
-//   0xbffffff5   argv[1][...]    -l\0        char[3]
-//   0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-//   0xbfffffec   stack-align       0         uint8_t
-//   0xbfffffe8   argv[4]           0         char *
-//   0xbfffffe4   argv[3]        0xbffffffc   char *
-//   0xbfffffe0   argv[2]        0xbffffff8   char *
-//   0xbfffffdc   argv[1]        0xbffffff5   char *
-//   0xbfffffd8   argv[0]        0xbfffffed   char *
-
-//   how our stack should look at this point
-//   */
-//   //adding in argv
-//   void* argv = (void*)((char*)(*esp));
-
-//   *esp -= sizeof(char**);
-//   *esp = argv;
-
-//   //adding in argc
-//   *esp -= sizeof(int);
-//   **esp = argc;
-
-//   /*
-//   NEED TO PUSH RETRUN ADDRESS HERE. idk how yet
-
-//   */
-// }
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-
-static bool setup_stack(void** esp, const char* file_name) {
+static bool setup_stack(void** esp) {
   uint8_t* kpage;
   bool success = false;
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
-    if (success) {
+    if (success)
       *esp = PHYS_BASE;
-      // setup_stack_helper(esp, file_name);
-      setup_stack_helper(esp, file_name);
-    } else {
+    else
       palloc_free_page(kpage);
-    }
   }
   return success;
 }
