@@ -16,8 +16,14 @@ struct inode_disk {
   block_sector_t start; /* First data sector. */
   off_t length;         /* File size in bytes. */
   unsigned magic;       /* Magic number. */
-  uint32_t unused[125]; /* Not used. */
+  block_sector_t direct[12];
+  block_sector_t singly_direct;
+  block_sector_t doubly_indirect;
+  uint32_t unused[111]; /* Not used. */
 };
+
+int max_inumber;
+struct lock max_inumber_lock;
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
