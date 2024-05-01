@@ -45,7 +45,7 @@ static void syscall_handler(struct intr_frame* f) {
       {3, (syscall_function*)sys_read},      {3, (syscall_function*)sys_write},
       {2, (syscall_function*)sys_seek},      {1, (syscall_function*)sys_tell},
       {1, (syscall_function*)sys_close},     {1, (syscall_function*)sys_practice},
-      {1, (syscall_function*)sys_compute_e},
+      {1, (syscall_function*)sys_compute_e}, {1, (syscall_function*)sys_inumber},
   };
 
   const struct syscall* sc;
@@ -379,6 +379,16 @@ int sys_close(int handle) {
   list_remove(&fd->elem);
   free(fd);
   return 0;
+}
+
+int sys_inumber(int fd) {
+  struct file_descriptor* file_desc = lookup_fd(fd);
+  if (!file_desc || !file_desc->file) {
+    return -1;
+  } else {
+    struct inode* inode = file_get_inode(file_desc->file);
+    return inode_get_inumber(inode);
+  }
 }
 
 /* Practice system call. */
