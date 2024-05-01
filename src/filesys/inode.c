@@ -382,8 +382,16 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
     if (chunk_size <= 0)
       break;
 
-    block_write(fs_device, sector_idx, buffer_);
-    //write_helper(buffer_, sector_idx, size, offset);
+    if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
+      block_write(fs_device, sector_idx, buffer + bytes_written);
+      //write_helper(buffer_, sector_idx, size, offset);
+    } else {
+      uint8_t* sector_buf = malloc(BLOCK_SECTOR_SIZE);
+      block_read(fs_device, sector_idx, sector_buf);
+      memcpy(sector_buf + sector_ofs, buffer + bytes_written, chunk_size);
+      block_write(fs_device, sector_idx, sector_buf);
+      free(sector_buf);
+    }
 
     /* Advance. */
     size -= chunk_size;
