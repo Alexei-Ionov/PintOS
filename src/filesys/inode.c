@@ -57,7 +57,7 @@ static block_sector_t sector_of_index(struct inode* inode, int sector_index) {
     sector_index = sector_index - NUM_DIRECT;
     block_sector_t doubly_indirect[NUM_POINTER];
     block_sector_t singly_indirect[NUM_POINTER];
-    block_read(fs_device, &inode_block.doubly_indirect, &doubly_indirect);
+    block_read(fs_device, inode_block.doubly_indirect, &doubly_indirect);
     block_read(fs_device, doubly_indirect[sector_index / NUM_POINTER], &singly_indirect);
     return singly_indirect[sector_index % NUM_POINTER];
     //read_helper(doubly_indirect, &inode_block->doubly_indirect, BLOCK_SECTOR_SIZE, 0);
