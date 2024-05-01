@@ -23,6 +23,7 @@ void free_map_init(void) {
    sectors were available or if the free_map file could not be
    written. */
 bool free_map_allocate(size_t cnt, block_sector_t* sectorp) {
+  lock_acquire(&free_map_lock);
   block_sector_t sector = bitmap_scan_and_flip(free_map, 0, cnt, false);
   if (sector != BITMAP_ERROR && free_map_file != NULL && !bitmap_write(free_map, free_map_file)) {
     bitmap_set_multiple(free_map, sector, cnt, false);
@@ -30,6 +31,7 @@ bool free_map_allocate(size_t cnt, block_sector_t* sectorp) {
   }
   if (sector != BITMAP_ERROR)
     *sectorp = sector;
+  lock_release(&free_map_lock);
   return sector != BITMAP_ERROR;
 }
 
