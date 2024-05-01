@@ -122,16 +122,15 @@ int main(void) {
   serial_init_queue();
   timer_calibrate();
 
-#ifdef USERPROG
-  /* Give main thread a minimal PCB so it can launch the first process */
-  userprog_init();
-#endif
-
 #ifdef FILESYS
   /* Initialize file system. */
   ide_init();
   locate_block_devices();
   filesys_init(format_filesys);
+#endif
+#ifdef USERPROG
+  /* Give main thread a minimal PCB so it can launch the first process */
+  userprog_init();
 #endif
 
   printf("Boot complete.\n");

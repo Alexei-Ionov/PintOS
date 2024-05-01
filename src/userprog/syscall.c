@@ -15,6 +15,8 @@
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
 
+#include "filesys/inode.h"
+#define READDIR_MAX_LEN 14
 static void syscall_handler(struct intr_frame*);
 static void copy_in(void*, const void*, size_t);
 
@@ -46,7 +48,8 @@ static void syscall_handler(struct intr_frame* f) {
       {2, (syscall_function*)sys_seek},      {1, (syscall_function*)sys_tell},
       {1, (syscall_function*)sys_close},     {1, (syscall_function*)sys_practice},
       {1, (syscall_function*)sys_compute_e}, {1, (syscall_function*)sys_inumber},
-  };
+      {1, (syscall_function*)sys_chdir},     {1, (syscall_function*)sys_mkdir},
+      {2, (syscall_function*)sys_readdir},   {1, (syscall_function*)sys_isdir}};
 
   const struct syscall* sc;
   unsigned call_nr;
@@ -264,6 +267,10 @@ int sys_read(int handle, void* udst_, unsigned size) {
 
   /* Handle all other reads. */
   fd = lookup_fd(handle);
+  /* NOTE: not sure whether i should jsut return 0 or proces_exit(-1)*/
+  if (sys_isdir(handle)) {
+    return 0;
+  }
   lock_acquire(&fs_lock);
   while (size > 0) {
     /* How much to read into this page? */
@@ -306,8 +313,13 @@ int sys_write(int handle, void* usrc_, unsigned size) {
   int bytes_written = 0;
 
   /* Lookup up file descriptor. */
-  if (handle != STDOUT_FILENO)
+  if (handle != STDOUT_FILENO) {
     fd = lookup_fd(handle);
+    /* NOTE: not sure whether i should jsut return 0 or proces_exit(-1)*/
+    if (sys_isdir(handle)) {
+      return 0;
+    }
+  }
 
   lock_acquire(&fs_lock);
   while (size > 0) {
@@ -396,3 +408,204 @@ int sys_practice(int input) { return input + 1; }
 
 /* Compute e and return a float cast to an int */
 int sys_compute_e(int n) { return sys_sum_to_e(n); }
+
+struct dir* get_dir_no_create(const char* dir, bool is_chdir) {
+  /* ASSUMES A VALID DIR PATH IS GIVEN */
+  struct dir* dir_head;
+  /* if we have an absolute path */
+  if (dir[0] == '/') {
+    dir_head = dir_open_root();
+  } else { /* else relative path!! */
+    dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
+  }
+
+  char buf[15];
+  memset(&buf, 0, 15);
+  int ret;
+  const char** src = &dir;
+  struct dir* prev_dir = NULL;
+  struct inode* next;
+
+  while (1) {
+    ret = get_next_part(buf, src);
+    /* too long of a filename part */
+    if (ret == -1) {
+      dir_close(dir_head);
+      return NULL;
+    }
+    /* end of dir path */
+    if (ret == 0) {
+      /* in the case where we are cd'ing into a directory, we want to cd into the last part of the path.*/
+      if (is_chdir) {
+        dir_close(prev_dir);
+        return dir_head;
+      }
+      /* case where we want the directory right before the last part. this is the case with fileopen, fileremove */
+      dir_close(dir_head);
+      return prev_dir;
+    }
+    if (prev_dir) {
+      dir_close(prev_dir);
+    }
+    /* in the case where we have a faulty path */
+    if (!dir_lookup(dir_head, &buf, &next)) {
+      dir_close(dir_head);
+      return NULL;
+    }
+    prev_dir = dir_head;
+    dir_head = dir_open(next);
+    memset(&buf, 0, 15);
+  }
+}
+struct dir* get_dir_create(const char* dir) {
+
+  struct dir* dir_head;
+  /* if we have an absolute path */
+  if (dir[0] == '/') {
+    dir_head = dir_open_root();
+  } else { /* else relative path!! */
+    dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
+  }
+
+  char buf[15];
+  memset(&buf, 0, 15);
+  int ret;
+  const char** src = &dir;
+  struct dir* temp_dir = NULL;
+  struct inode* next;
+  while (1) {
+    ret = get_next_part(buf, src);
+    /* too long of a filename part */
+    if (ret == -1) {
+      dir_close(dir_head);
+      return NULL;
+    }
+    /* end of dir path means that the file/dir already exists! */
+    if (ret == 0) {
+      dir_close(dir_head);
+      return NULL;
+    }
+    /* in the case where we have a faulty path OR in the case of last part for mkdir/filesyscreate*/
+    if (!dir_lookup(dir_head, &buf, &next)) {
+      /* invalid path */
+      if (get_next_part(buf, src) != 0) {
+        dir_close(dir_head);
+        return NULL;
+      }
+      return dir_head;
+    }
+    temp_dir = dir_head;
+    dir_head = dir_open(next);
+    dir_close(temp_dir);
+    memset(&buf, 0, 15);
+  }
+}
+
+void get_last_part(char* name, char* res) {
+  char buf[15];
+  memset(&buf, 0, 15);
+  int ret;
+  const char** src = &name;
+  int len = 0;
+  while (ret = get_next_part(buf, src)) {
+    len = strlen(&buf);
+    memcpy(res, &buf, len);
+    memset(&buf, 0, 15);
+  }
+  res[len] = '\0';
+}
+
+/* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the
+   next call will return the next file name part. Returns 1 if successful, 0 at
+   end of string, -1 for a too-long file name part. */
+int get_next_part(char part[READDIR_MAX_LEN + 1], const char** srcp) {
+  const char* src = *srcp;
+  char* dst = part;
+
+  /* Skip leading slashes.  If it's all slashes, we're done. */
+  while (*src == '/')
+    src++;
+  if (*src == '\0')
+    return 0;
+
+  /* Copy up to NAME_MAX character from SRC to DST.  Add null terminator. */
+  while (*src != '/' && *src != '\0') {
+    if (dst < part + READDIR_MAX_LEN)
+      *dst++ = *src;
+    else
+      return -1;
+    src++;
+  }
+  *dst = '\0';
+
+  /* Advance source pointer. */
+  *srcp = src;
+  return 1;
+}
+bool sys_chdir(const char* dir) {
+  if (!dir || strlen(dir) == 0) {
+    return false;
+  }
+  struct dir* cwd = get_dir_no_create(dir, true);
+  if (cwd == NULL) {
+    return false;
+  }
+  //close the cwd as we will not be needing it anymore
+  dir_close(thread_current()->pcb->cwd);
+  /* update the cwd */
+  thread_current()->pcb->cwd = cwd;
+  return true;
+}
+bool sys_mkdir(const char* dir) {
+  if (!dir || strlen(dir) == 0) {
+    return false;
+  }
+  struct dir* d = get_dir_create(dir);
+  if (d == NULL) {
+    return false;
+  }
+  uint32_t* sectorp;
+  if (!free_map_allocate(1, sectorp)) {
+    dir_close(d);
+    return false;
+  }
+  if (!dir_create(*sectorp, 16, inode_get_inumber(dir_get_inode(d)))) {
+    dir_close(d);
+    free_map_release(*sectorp, 1);
+    return false;
+  }
+
+  char dir_name[15];
+  get_last_part(dir, &dir_name);
+  /* add dir entry for the newly created directory */
+  if (!dir_add(d, &dir_name, *sectorp)) {
+    dir_close(d);
+    free_map_release(*sectorp, 1);
+    return false;
+  }
+  dir_close(d);
+  return true;
+}
+bool sys_readdir(int fd, char name) {
+  if (!sys_isdir(fd)) {
+    return false;
+  }
+  struct file_descriptor* file_metadata = lookup_fd(fd);
+  struct dir* d = dir_open(inode_open(inode_get_inumber(file_get_inode(file_metadata->file))));
+  if (d == NULL)
+    return false;
+  while (dir_readdir(d, name)) {
+    if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
+      dir_close(d);
+      return true;
+    }
+  }
+  dir_close(d);
+  return false;
+}
+bool sys_isdir(int fd) {
+  struct file_descriptor* file_metadata = lookup_fd(fd);
+  struct inode_disk data;
+  block_read(fs_device, inode_get_inumber(file_get_inode(file_metadata->file)), (void*)&data);
+  return data.is_dir;
+}

@@ -12,34 +12,11 @@
 #define NUM_DIRECT 12
 #define NUM_POINTER 128
 
-/* On-disk inode.
-   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
-struct inode_disk {
-  off_t length;   /* File size in bytes. */
-  unsigned magic; /* Magic number. */
-  block_sector_t direct[12];
-  block_sector_t doubly_indirect;
-  uint32_t permissions;
-  uint32_t num_links;
-  int is_dir;
-  uint32_t unused[110]; /* Not used. */
-};
-
 int max_inumber;
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
 static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BLOCK_SECTOR_SIZE); }
-
-/* In-memory inode. */
-struct inode {
-  struct list_elem elem; /* Element in inode list. */
-  block_sector_t sector; /* Sector number of disk location. */
-  int open_cnt;          /* Number of openers. */
-  bool removed;          /* True if deleted, false otherwise. */
-  int deny_write_cnt;    /* 0: writes ok, >0: deny writes. */
-  //struct inode_disk data; /* Inode content. */
-};
 
 /* Returns the physical block sector number of sequential index i in the inode
    by performing pointer tree traversal. */
@@ -92,7 +69,7 @@ void inode_init(void) { list_init(&open_inodes); }
    device.
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
-bool inode_create(block_sector_t sector, off_t length) {
+bool inode_create(block_sector_t sector, off_t length, int is_dir) {
   struct inode_disk* disk_inode = NULL;
   bool success = false;
 
@@ -105,6 +82,7 @@ bool inode_create(block_sector_t sector, off_t length) {
   disk_inode = (struct inode_disk*)calloc(1, sizeof *disk_inode);
   disk_inode->length = 0;
   disk_inode->magic = INODE_MAGIC;
+  disk_inode->is_dir = is_dir;
 
   success = inode_resize(disk_inode, length);
 
