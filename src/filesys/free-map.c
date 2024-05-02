@@ -38,17 +38,22 @@ bool free_map_allocate(size_t cnt, block_sector_t* sectorp) {
 /* Makes CNT sectors starting at SECTOR available for use. */
 void free_map_release(block_sector_t sector, size_t cnt) {
   ASSERT(bitmap_all(free_map, sector, cnt));
+  lock_acquire(&free_map_lock);
   bitmap_set_multiple(free_map, sector, cnt, false);
   bitmap_write(free_map, free_map_file);
+  lock_release(&free_map_lock);
 }
 
 /* Opens the free map file and reads it from disk. */
 void free_map_open(void) {
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
+
   if (free_map_file == NULL)
     PANIC("can't open free map");
+  lock_acquire(&free_map_lock);
   if (!bitmap_read(free_map, free_map_file))
     PANIC("can't read free map");
+  lock_release(&free_map_lock);
 }
 
 /* Writes the free map to disk and closes the free map file. */
@@ -65,6 +70,8 @@ void free_map_create(void) {
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
+  lock_acquire(&free_map_lock);
   if (!bitmap_write(free_map, free_map_file))
     PANIC("can't write free map");
+  lock_release(&free_map_lock);
 }

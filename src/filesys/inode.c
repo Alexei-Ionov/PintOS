@@ -11,7 +11,7 @@
 #define INODE_MAGIC 0x494e4f44
 #define NUM_DIRECT 12
 #define NUM_POINTER 128
-
+#define FREE 4098
 int max_inumber;
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -83,7 +83,9 @@ bool inode_create(block_sector_t sector, off_t length, int is_dir) {
   disk_inode->length = 0;
   disk_inode->magic = INODE_MAGIC;
   disk_inode->is_dir = is_dir;
-
+  for (int i = 0; i < NUM_DIRECT; i++) {
+    disk_inode->direct[i] = FREE;
+  }
   success = inode_resize(disk_inode, length);
 
   block_write(fs_device, sector, disk_inode);
@@ -234,11 +236,11 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
   block_sector_t zero_block = calloc(NUM_POINTER, sizeof(block_sector_t));
   /* Handle direct pointers */
   for (int i = 0; i < NUM_DIRECT; i++) {
-    if (final_size <= BLOCK_SECTOR_SIZE * i && inode->direct[i] != 0) {
+    if (final_size <= BLOCK_SECTOR_SIZE * i && inode->direct[i] != FREE) {
       /* Shrink */
       free_map_release(inode->direct[i], 1);
-      inode->direct[i] = 0;
-    } else if (final_size > BLOCK_SECTOR_SIZE * i && inode->direct[i] == 0) {
+      inode->direct[i] = FREE;
+    } else if (final_size > BLOCK_SECTOR_SIZE * i && inode->direct[i] == FREE) {
       /* Grow */
       free_map_allocate(1, &inode->direct[i]);
       block_write(fs_device, inode->direct[i], zero_block);

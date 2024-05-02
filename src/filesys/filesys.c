@@ -86,10 +86,10 @@ bool is_dir_empty(struct dir* dir) {
   char name[15];
   while (dir_readdir(dir, name)) {
     if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
-      return true;
+      return false;
     }
   }
-  return false;
+  return true;
 }
 /* Deletes the file named NAME.
    Returns true if successful, false on failure.
@@ -100,6 +100,15 @@ bool filesys_remove(const char* name) {
   struct dir* dir = get_dir_no_create(name, false);
   if (dir == NULL)
     return false;
+  if (strcmp(name, "/") == 0) {
+    dir_close(dir);
+    return false;
+  }
+  // if (inode_get_inumber(dir_get_inode(dir)) == ROOT_DIR_SECTOR) {
+  //   dir_close(dir);
+  //   return false;
+  // }
+
   //can be either file or directory!!!
   char file_name[15];
   get_last_part(name, &file_name);

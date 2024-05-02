@@ -39,18 +39,41 @@ static void syscall_handler(struct intr_frame* f) {
   };
 
   /* Table of system calls. */
-  static const struct syscall syscall_table[] = {
-      {0, (syscall_function*)sys_halt},      {1, (syscall_function*)sys_exit},
-      {1, (syscall_function*)sys_exec},      {1, (syscall_function*)sys_wait},
-      {2, (syscall_function*)sys_create},    {1, (syscall_function*)sys_remove},
-      {1, (syscall_function*)sys_open},      {1, (syscall_function*)sys_filesize},
-      {3, (syscall_function*)sys_read},      {3, (syscall_function*)sys_write},
-      {2, (syscall_function*)sys_seek},      {1, (syscall_function*)sys_tell},
-      {1, (syscall_function*)sys_close},     {1, (syscall_function*)sys_practice},
-      {1, (syscall_function*)sys_compute_e}, {1, (syscall_function*)sys_inumber},
-      {1, (syscall_function*)sys_chdir},     {1, (syscall_function*)sys_mkdir},
-      {2, (syscall_function*)sys_readdir},   {1, (syscall_function*)sys_isdir}};
+  // static const struct syscall syscall_table[] = {
+  //     {0, (syscall_function*)sys_halt},      {1, (syscall_function*)sys_exit},
+  //     {1, (syscall_function*)sys_exec},      {1, (syscall_function*)sys_wait},
+  //     {2, (syscall_function*)sys_create},    {1, (syscall_function*)sys_remove},
+  //     {1, (syscall_function*)sys_open},      {1, (syscall_function*)sys_filesize},
+  //     {3, (syscall_function*)sys_read},      {3, (syscall_function*)sys_write},
+  //     {2, (syscall_function*)sys_seek},      {1, (syscall_function*)sys_tell},
+  //     {1, (syscall_function*)sys_close},     {1, (syscall_function*)sys_practice},
+  //     {1, (syscall_function*)sys_compute_e}, {1, (syscall_function*)sys_inumber},
+  //     {1, (syscall_function*)sys_chdir},     {1, (syscall_function*)sys_mkdir},
+  //     {2, (syscall_function*)sys_readdir},   {1, (syscall_function*)sys_isdir},
+  //     };
+  /* Table of system calls. */
 
+  static const struct syscall syscall_table[] = {
+      {0, (syscall_function*)sys_halt},         {1, (syscall_function*)sys_exit},
+      {1, (syscall_function*)sys_exec},         {1, (syscall_function*)sys_wait},
+      {2, (syscall_function*)sys_create},       {1, (syscall_function*)sys_remove},
+      {1, (syscall_function*)sys_open},         {1, (syscall_function*)sys_filesize},
+      {3, (syscall_function*)sys_read},         {3, (syscall_function*)sys_write},
+      {2, (syscall_function*)sys_seek},         {1, (syscall_function*)sys_tell},
+      {1, (syscall_function*)sys_close},        {1, (syscall_function*)sys_practice},
+      {1, (syscall_function*)sys_compute_e},    {3, (syscall_function*)sys_pthread_create},
+      {0, (syscall_function*)sys_pthread_exit}, {1, (syscall_function*)sys_pthread_join},
+      {1, (syscall_function*)sys_lock_init},    {1, (syscall_function*)sys_lock_acquire},
+      {1, (syscall_function*)sys_lock_release}, {2, (syscall_function*)sys_sema_init},
+      {1, (syscall_function*)sys_sema_down},    {1, (syscall_function*)sys_sema_up},
+      {1, (syscall_function*)sys_get_tid},
+
+      {2, (syscall_function*)sys_mmap},         {1, (syscall_function*)sys_munmap},
+
+      {1, (syscall_function*)sys_chdir},        {1, (syscall_function*)sys_mkdir},
+      {1, (syscall_function*)sys_readdir},      {2, (syscall_function*)sys_isdir},
+      {1, (syscall_function*)sys_inumber},
+  };
   const struct syscall* sc;
   unsigned call_nr;
   int args[3];
@@ -269,7 +292,7 @@ int sys_read(int handle, void* udst_, unsigned size) {
   fd = lookup_fd(handle);
   /* NOTE: not sure whether i should jsut return 0 or proces_exit(-1)*/
   if (sys_isdir(handle)) {
-    return 0;
+    return -1;
   }
   lock_acquire(&fs_lock);
   while (size > 0) {
@@ -317,7 +340,7 @@ int sys_write(int handle, void* usrc_, unsigned size) {
     fd = lookup_fd(handle);
     /* NOTE: not sure whether i should jsut return 0 or proces_exit(-1)*/
     if (sys_isdir(handle)) {
-      return 0;
+      return -1;
     }
   }
 
@@ -609,3 +632,162 @@ bool sys_isdir(int fd) {
   block_read(fs_device, inode_get_inumber(file_get_inode(file_metadata->file)), (void*)&data);
   return data.is_dir;
 }
+
+tid_t sys_pthread_create(stub_fun sfun, pthread_fun tfun, const void* arg) {
+  return pthread_execute(sfun, tfun, arg);
+}
+
+void sys_pthread_exit(void) { pthread_exit(); }
+
+tid_t sys_pthread_join(tid_t tid) {}
+
+bool sys_lock_init(char* lock) {
+  // lock_acquire(&fs_lock);
+  // bool verified = verify_user(lock);
+  // lock_release(&fs_lock);
+  // if (!verified) {
+  //   return false;
+  // }
+  // if (lock == NULL) {
+  //   return false;
+  // }
+  // struct lock_metadata* new_lock = malloc(sizeof(struct lock_metadata));
+  // if (new_lock == NULL) {
+  //   return false;
+  // }
+  // // struct lock kernel_lock;
+
+  // struct lock* kernel_lock = malloc(sizeof(struct lock));
+  // if (kernel_lock == NULL) {
+  //   free(new_lock);
+  //   return false;
+  // }
+  // new_lock->id = lock;
+  // lock_init(kernel_lock);
+  // new_lock->kernel_lock = kernel_lock;
+  // lock_acquire(&thread_current()->pcb->lock_for_lock_list);
+  // list_push_back(&thread_current()->pcb->lock_list, &new_lock->elem);
+  // lock_release(&thread_current()->pcb->lock_for_lock_list);
+  // return true;
+  return true;
+}
+
+struct lock_metadata* get_lock_metadata(char* lock) {
+  //   lock_acquire(&thread_current()->pcb->lock_for_lock_list);
+  //   struct list_elem* e;
+  //   struct list* lock_list = &thread_current()->pcb->lock_list;
+  //   struct lock_metadata* res = NULL;
+  //   for (e = list_begin(lock_list); e != list_end(lock_list); e = list_next(e)) {
+  //     struct lock_metadata* l = list_entry(e, struct lock_metadata, elem);
+  //     if (l->id == lock) {
+  //       res = l;
+  //       break;
+  //     }
+  //   }
+  //   lock_release(&thread_current()->pcb->lock_for_lock_list);
+  //   return res;
+  // }
+}
+bool sys_lock_acquire(char* lock) {
+  //   struct lock_metadata* l = get_lock_metadata(lock);
+  //   if (l == NULL) {
+  //     return false;
+  //   }
+  //   //can't acquire the same lock twice with the same thread.
+  //   if (l->kernel_lock->holder && l->kernel_lock->holder->tid == thread_current()->tid) {
+  //     return false;
+  //   }
+  //   lock_acquire(l->kernel_lock);
+  return true;
+}
+
+bool sys_lock_release(char* lock) {
+  // struct lock_metadata* l = get_lock_metadata(lock);
+  // if (l == NULL) {
+  //   return false;
+  // }
+  // //can't release lock not held by this thread...
+  // if (!l->kernel_lock->holder || l->kernel_lock->holder->tid != thread_current()->tid) {
+  //   return false;
+  // }
+  // lock_release(l->kernel_lock);
+  return true;
+}
+
+bool sys_sema_init(char* sema, int val) {
+  // lock_acquire(&fs_lock);
+  // bool verified = verify_user(sema);
+  // lock_release(&fs_lock);
+  // if (!verified) {
+  //   return false;
+  // }
+  // if (val < 0) {
+  //   return false;
+  // }
+  // struct sema_metadata* new_sema = malloc(sizeof(struct sema_metadata));
+  // if (new_sema == NULL) {
+  //   return false;
+  // }
+  // new_sema->id = sema;
+
+  // struct semaphore* kernel_sema = malloc(sizeof(struct semaphore));
+  // if (kernel_sema == NULL) {
+  //   free(new_sema);
+  //   return false;
+  // }
+  // sema_init(kernel_sema, val);
+  // new_sema->kernel_sema = kernel_sema;
+  // lock_acquire(&thread_current()->pcb->lock_for_sema_list);
+  // list_push_back(&thread_current()->pcb->sema_list, &new_sema->elem);
+  // lock_release(&thread_current()->pcb->lock_for_sema_list);
+  return true;
+}
+struct sema_metadata* get_sema_metadata(char* sema) {
+  // lock_acquire(&thread_current()->pcb->lock_for_sema_list);
+  // struct list_elem* e;
+  // struct list* sema_list = &thread_current()->pcb->sema_list;
+  // struct sema_metadata* res = NULL;
+  // for (e = list_begin(sema_list); e != list_end(sema_list); e = list_next(e)) {
+  //   struct sema_metadata* s = list_entry(e, struct sema_metadata, elem);
+  //   if (s->id == sema) {
+  //     res = s;
+  //     break;
+  //   }
+  // }
+  // lock_release(&thread_current()->pcb->lock_for_sema_list);
+  // return res;
+}
+bool sys_sema_down(char* sema) {
+  // lock_acquire(&fs_lock);
+  // bool verified = verify_user(sema);
+  // lock_release(&fs_lock);
+  // if (!verified) {
+  //   return false;
+  // }
+  // struct sema_metadata* s = get_sema_metadata(sema);
+  // if (s == NULL) {
+  //   return false;
+  // }
+  // sema_down(s->kernel_sema);
+  return true;
+}
+
+bool sys_sema_up(char* sema) {
+  // lock_acquire(&fs_lock);
+  // bool verified = verify_user(sema);
+  // lock_release(&fs_lock);
+  // if (!verified) {
+  //   return false;
+  // }
+  // struct sema_metadata* s = get_sema_metadata(sema);
+  // if (s == NULL) {
+  //   return false;
+  // }
+  // sema_up(s->kernel_sema);
+  return true;
+}
+
+tid_t sys_get_tid(void) { return thread_current()->tid; }
+
+mapid_t sys_mmap(int fd, void* addr) {}
+void sys_munmap(mapid_t) {}
