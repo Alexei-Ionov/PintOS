@@ -25,42 +25,21 @@ void free_map_init(void) {
 bool free_map_allocate(size_t cnt, block_sector_t* sectorp) {
   lock_acquire(&free_map_lock);
   block_sector_t sector = bitmap_scan_and_flip(free_map, 0, cnt, false);
-  lock_release(&free_map_lock);
-
-  // if (sector != BITMAP_ERROR) {
-  //   lock_acquire(&free_map_lock);
-  //   bitmap_set_multiple(free_map, sector, cnt, false);
-  //   lock_release(&free_map_lock);
-  //   sector = BITMAP_ERROR;
-  // }
-  // if (sector != BITMAP_ERROR && free_map_file != NULL) {
-  //   lock_acquire(&free_map_lock);
-  //   bitmap_set_multiple(free_map, sector, cnt, false);
-  //   lock_release(&free_map_lock);
-  //   sector = BITMAP_ERROR;
-  // }
-  // if (sector != BITMAP_ERROR && free_map_file != NULL && !bitmap_write(free_map, free_map_file)) {
-  //   lock_acquire(&free_map_lock);
-  //   bitmap_set_multiple(free_map, sector, cnt, false);
-  //   lock_release(&free_map_lock);
-
-  //   sector = BITMAP_ERROR;
-  // }
+  if (sector != BITMAP_ERROR && free_map_file != NULL && !bitmap_write(free_map, free_map_file)) {
+    bitmap_set_multiple(free_map, sector, cnt, false);
+    sector = BITMAP_ERROR;
+  }
   if (sector != BITMAP_ERROR)
     *sectorp = sector;
-  // lock_release(&free_map_lock);
+  lock_release(&free_map_lock);
   return sector != BITMAP_ERROR;
 }
 
 /* Makes CNT sectors starting at SECTOR available for use. */
 void free_map_release(block_sector_t sector, size_t cnt) {
   ASSERT(bitmap_all(free_map, sector, cnt));
-  lock_acquire(&free_map_lock);
   bitmap_set_multiple(free_map, sector, cnt, false);
-  lock_release(&free_map_lock);
-
-  // bitmap_write(free_map, free_map_file);
-  // lock_release(&free_map_lock);
+  bitmap_write(free_map, free_map_file);
 }
 
 /* Opens the free map file and reads it from disk. */
@@ -68,17 +47,12 @@ void free_map_open(void) {
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
-  // lock_acquire(&free_map_lock);
   if (!bitmap_read(free_map, free_map_file))
     PANIC("can't read free map");
-  // lock_release(&free_map_lock);
 }
 
 /* Writes the free map to disk and closes the free map file. */
-void free_map_close(void) {
-  // bitmap_write(free_map, free_map_file);
-  // file_close(free_map_file);
-}
+void free_map_close(void) { file_close(free_map_file); }
 
 /* Creates a new free map file on disk and writes the free map to
    it. */
@@ -91,8 +65,6 @@ void free_map_create(void) {
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
-  // lock_acquire(&free_map_lock);
   if (!bitmap_write(free_map, free_map_file))
-    PANIC("can't write frmee map");
-  // lock_release(&free_map_lock);
+    PANIC("can't write free map");
 }
