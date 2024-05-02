@@ -271,46 +271,6 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
     //read_helper
   }
 
-  // /* Iterate through the pointers in the doubly indirect block. */
-  // for (int i = 0; i < NUM_POINTER; i++) {
-  //   block_sector_t* singly_indirect_buffer = calloc(NUM_POINTER, sizeof(block_sector_t));
-
-  //   if (doubly_indirect_buffer[i] != 0 && final_size <= (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     block_read(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     for (int j = 0; j < NUM_POINTER; j++) {
-  //       free_map_release(singly_indirect_buffer[j], 1);
-  //       singly_indirect_buffer[j] = 0;
-  //     }
-  //     block_write(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     free_map_release(doubly_indirect_buffer[i], 1);
-  //   } else if (final_size > (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     block_sector_t *ip = &doubly_indirect_buffer[i];
-  //     memset(singly_indirect_buffer, 0, 512);
-  //     if (doubly_indirect_buffer[i] == 0) {
-  //       free_map_allocate(1, ip);
-  //     } else {
-  //       block_read(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     }
-  //     for (int j = 0; j < 128; j++) {
-  //       if ((final_size <= (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) && (singly_indirect_buffer[j] != 0)) {
-  //         free_map_release(singly_indirect_buffer[j], 1);
-  //         singly_indirect_buffer[j] = 0;
-  //       } else {
-  //         free_map_allocate(1, &singly_indirect_buffer);
-  //       }
-  //     }
-  //     block_write(fs_device, *ip, singly_indirect_buffer);
-  //   }
-  //   free(singly_indirect_buffer);
-  // }
-  // /* If size does not require a doubly indirect pointer, then remove it. */
-  // if (final_size <= 12 * BLOCK_SECTOR_SIZE) {
-  //   free_map_release(inode->doubly_indirect, 1);
-  //   inode->doubly_indirect = 0;
-  // } else {
-  //   block_write(fs_device, inode->doubly_indirect, doubly_indirect_buffer);
-  // }
-
   /* Iterate through the pointers in the doubly indirect block. */
   for (int i = 0; i < NUM_POINTER; i++) {
     block_sector_t* singly_indirect_buffer = calloc(NUM_POINTER, sizeof(block_sector_t));
