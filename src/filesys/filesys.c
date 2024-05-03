@@ -39,7 +39,8 @@ void filesys_done(void) { free_map_close(); }
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool filesys_create(const char* name, off_t initial_size) {
-  /* since the file hasn't been created yet we set the value to true so that it gets us the dir where the file should exist! */
+  /* in case where cwd has been removed already. we should not be able to create any files inisde of it*/
+
   struct dir* dir = get_dir_create(name);
   /* faulty file path */
   if (dir == NULL) {
@@ -50,6 +51,8 @@ bool filesys_create(const char* name, off_t initial_size) {
   char file_name[15];
   get_last_part(name, &file_name);
 
+  // lock_acquire(&free_map_lock);
+  /* NOTE MIGHT NEED TO ADD LOCK FOR FREE MAP HERE!!! */
   bool success =
       (free_map_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size, 0) &&
        dir_add(dir, &file_name, inode_sector));
@@ -66,6 +69,12 @@ bool filesys_create(const char* name, off_t initial_size) {
    or if an internal memory allocation fails. */
 struct file* filesys_open(const char* name) {
   /* found matching directory up to the last part */
+  if (strcmp(name, "/") == 0) {
+    return file_open(inode_open(ROOT_DIR_SECTOR));
+  }
+  if ((strcmp(name, ".") == 0 || strcmp(name, "..") == 0) && get_cwd_sector() == NULL) {
+    return NULL;
+  }
   struct dir* dir = get_dir_no_create(name, false);
   if (dir == NULL)
     return NULL;
@@ -96,7 +105,7 @@ bool is_dir_empty(struct dir* dir) {
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 bool filesys_remove(const char* name) {
-  /* dir is the directory that contains the file/dir we want to remove*/
+  /* dir is the directory that contains the file/dir we want to remove */
   struct dir* dir = get_dir_no_create(name, false);
   if (dir == NULL)
     return false;
@@ -104,10 +113,6 @@ bool filesys_remove(const char* name) {
     dir_close(dir);
     return false;
   }
-  // if (inode_get_inumber(dir_get_inode(dir)) == ROOT_DIR_SECTOR) {
-  //   dir_close(dir);
-  //   return false;
-  // }
 
   //can be either file or directory!!!
   char file_name[15];
@@ -126,6 +131,10 @@ bool filesys_remove(const char* name) {
       dir_close(dir_to_remove);
       dir_close(dir);
       return false;
+    }
+    /* if we are removing the directory we are currenlty on, also set our t->pcb->cwd to NULL !*/
+    if (inode_get_inumber(file_inode) == get_cwd_sector()) {
+      delete_cwd();
     }
     dir_close(dir_to_remove);
   }

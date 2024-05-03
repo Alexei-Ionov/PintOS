@@ -222,3 +222,6 @@ bool dir_readdir(struct dir* dir, char name[NAME_MAX + 1]) {
   }
   return false;
 }
+
+off_t dir_get_pos(struct dir* dir) { return dir->pos; }
+void dir_update_pos(struct dir* dir, off_t new_pos) { dir->pos = new_pos; }

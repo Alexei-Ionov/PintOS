@@ -357,7 +357,6 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   if (inode_block.length < size + offset) {
     success = inode_resize(&inode_block, size + offset);
     block_write(fs_device, inode->sector, &inode_block);
-
   }
 
   while (size > 0) {

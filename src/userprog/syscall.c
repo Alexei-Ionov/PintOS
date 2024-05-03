@@ -71,7 +71,7 @@ static void syscall_handler(struct intr_frame* f) {
       {2, (syscall_function*)sys_mmap},         {1, (syscall_function*)sys_munmap},
 
       {1, (syscall_function*)sys_chdir},        {1, (syscall_function*)sys_mkdir},
-      {1, (syscall_function*)sys_readdir},      {2, (syscall_function*)sys_isdir},
+      {2, (syscall_function*)sys_readdir},      {1, (syscall_function*)sys_isdir},
       {1, (syscall_function*)sys_inumber},
   };
   const struct syscall* sc;
@@ -234,6 +234,7 @@ int sys_open(const char* ufile) {
     if (fd->file != NULL) {
       struct thread* cur = thread_current();
       handle = fd->handle = cur->pcb->next_handle++;
+      fd->dir_pos = 0;
       list_push_front(&cur->pcb->fds, &fd->elem);
     } else
       free(fd);
@@ -431,6 +432,14 @@ int sys_practice(int input) { return input + 1; }
 /* Compute e and return a float cast to an int */
 int sys_compute_e(int n) { return sys_sum_to_e(n); }
 
+block_sector_t get_cwd_sector(void) {
+  if (!thread_current()->pcb->cwd) {
+    return NULL;
+  }
+  return inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd));
+}
+void delete_cwd(void) { thread_current()->pcb->cwd = NULL; }
+
 struct dir* get_dir_no_create(const char* dir, bool is_chdir) {
   /* ASSUMES A VALID DIR PATH IS GIVEN */
   struct dir* dir_head;
@@ -438,7 +447,14 @@ struct dir* get_dir_no_create(const char* dir, bool is_chdir) {
   if (dir[0] == '/') {
     dir_head = dir_open_root();
   } else { /* else relative path!! */
-    dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
+    if (get_cwd_sector() == NULL) {
+      return NULL;
+    }
+    if ((strcmp(dir, ".") == 0) || strcmp(dir, "..") == 0) {
+      dir_head = dir_open_root();
+    } else {
+      dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
+    }
   }
 
   if (strcmp(dir, "/") == 0) {
@@ -489,6 +505,10 @@ struct dir* get_dir_create(const char* dir) {
   if (dir[0] == '/') {
     dir_head = dir_open_root();
   } else { /* else relative path!! */
+
+    if (get_cwd_sector() == NULL) {
+      return NULL;
+    }
     dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
   }
 
@@ -611,23 +631,28 @@ bool sys_mkdir(const char* dir) {
   dir_close(d);
   return true;
 }
-bool sys_readdir(int fd, char name) {
+bool sys_readdir(int fd, char* name) {
   if (!sys_isdir(fd)) {
     return false;
   }
   struct file_descriptor* file_metadata = lookup_fd(fd);
-  struct dir* d = dir_open(inode_open(inode_get_inumber(file_get_inode(file_metadata->file))));
-  if (d == NULL)
+  struct dir* dir = dir_open(inode_open(inode_get_inumber(file_get_inode(file_metadata->file))));
+  if (dir == NULL)
     return false;
-  while (dir_readdir(d, name)) {
+  bool found = false;
+  dir_update_pos(dir, file_metadata->dir_pos);
+  while (dir_readdir(dir, name)) {
     if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
-      dir_close(d);
-      return true;
+      found = true;
+      break;
     }
   }
-  dir_close(d);
-  return false;
+
+  file_metadata->dir_pos = dir_get_pos(dir);
+  dir_close(dir);
+  return found;
 }
+
 bool sys_isdir(int fd) {
   struct file_descriptor* file_metadata = lookup_fd(fd);
   struct inode_disk data;
@@ -788,7 +813,6 @@ bool sys_sema_up(char* sema) {
   // sema_up(s->kernel_sema);
   return true;
 }
-
 tid_t sys_get_tid(void) { return thread_current()->tid; }
 
 mapid_t sys_mmap(int fd, void* addr) {}

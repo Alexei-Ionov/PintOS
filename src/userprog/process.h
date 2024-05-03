@@ -61,6 +61,7 @@ struct file_descriptor {
   struct list_elem elem; /* List element. */
   struct file* file;     /* File. */
   int handle;            /* File handle. */
+  uint32_t dir_pos;      /* pos inside the directory in case this file is a directory */
 };
 
 void userprog_init(void);
