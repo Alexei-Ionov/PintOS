@@ -72,8 +72,8 @@ static void syscall_handler(struct intr_frame* f) {
 
       {1, (syscall_function*)sys_chdir},        {1, (syscall_function*)sys_mkdir},
       {2, (syscall_function*)sys_readdir},      {1, (syscall_function*)sys_isdir},
-      {1, (syscall_function*)sys_inumber},
-  };
+      {1, (syscall_function*)sys_inumber},      {1, (syscall_function*)sys_bc_stats},
+      {0, (syscall_function*)sys_bc_clear}};
   const struct syscall* sc;
   unsigned call_nr;
   int args[3];
@@ -824,6 +824,8 @@ int sys_bc_stats(int sel) {
     return get_cache_misses();
   } else if (sel == 1) {
     return get_cache_hits();
+  } else if (sel == 2) {
+    return get_write_cnt();
   }
 }
 

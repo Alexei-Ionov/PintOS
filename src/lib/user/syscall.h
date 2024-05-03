@@ -63,6 +63,6 @@ bool isdir(int fd);
 int inumber(int fd);
 
 int bc_stats(int sel);
-void bc_clear();
+void bc_clear(void);
 
 #endif /* lib/user/syscall.h */

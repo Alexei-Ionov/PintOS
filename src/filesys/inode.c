@@ -22,6 +22,7 @@ struct lock cache_lock;
 int clock_pointer;
 int cache_hits;
 int cache_misses;
+int write_cnt;
 
 /* Returns the number of sectors to allofcate for an inode SIZE
    bytes long. */
@@ -86,6 +87,7 @@ void init_cache(void) {
   clock_pointer = 0;
   cache_hits = 0;
   cache_misses = 0;
+  write_cnt = 0;
   for (int i = 0; i < 64; i++) {
     cache[i].valid = 0;
     cache[i].dirty = 0;
@@ -227,6 +229,8 @@ void evict_cache(void) {
   for (int i = 0; i < 64; i++) {
     if (cache[i].valid && cache[i].dirty) {
       block_write(fs_device, cache[i].sector_index, cache[i].data);
+      cache_misses = 0;
+      cache_hits = 0;
     }
   }
 }
@@ -270,6 +274,7 @@ void read_helper(void* buffer, block_sector_t sector_idx, size_t size, int offse
   clock_pointer = (clock_pointer + 1) % 64;
   lock_release(&cache_lock); // release cache global lock here, before you edit the actual data.
   if (cur_cache->dirty) {
+    write_cnt++;
     block_write(fs_device, cur_cache->old_sector_index, cur_cache->data);
     cur_cache->dirty = 0;
   }
@@ -580,3 +585,4 @@ off_t inode_length(const struct inode* inode) {
 
 int get_cache_misses() { return cache_misses; }
 int get_cache_hits() { return cache_hits; }
+int get_write_cnt() { return write_cnt; }
