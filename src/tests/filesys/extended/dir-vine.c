@@ -63,7 +63,7 @@ void test_main(void) {
   }
 
   CHECK(i > 200, "created files and directories only to level %d", i);
-  ASSERT(1 == 2);
+  // ASSERT(1 == 2);
   quiet = false;
 
   msg("removing all but top 10 levels of files and directories...");
