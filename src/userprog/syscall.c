@@ -657,7 +657,7 @@ bool sys_readdir(int fd, char* name) {
 bool sys_isdir(int fd) {
   struct file_descriptor* file_metadata = lookup_fd(fd);
   struct inode_disk data;
-  block_read(fs_device, inode_get_inumber(file_get_inode(file_metadata->file)), (void*)&data);
+  read_helper(&data, inode_get_inumber(file_get_inode(file_metadata->file)), BLOCK_SECTOR_SIZE, 0);
   return data.is_dir;
 }
 

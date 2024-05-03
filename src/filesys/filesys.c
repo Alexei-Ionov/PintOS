@@ -6,6 +6,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "devices/block.h"
 
 /* Partition that contains the file system. */
 struct block* fs_device;
@@ -32,8 +33,10 @@ void filesys_init(bool format) {
 
 /* Shuts down the file system module, writing any unwritten data
    to disk. */
-void filesys_done(void) { free_map_close(); }
-
+void filesys_done(void) {
+  evict_cache();
+  free_map_close();
+}
 /* Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
@@ -128,7 +131,7 @@ bool filesys_remove(const char* name) {
     return false;
   }
   struct inode_disk data;
-  block_read(fs_device, file_inode->sector, (void*)&data);
+  read_helper((void*)&data, file_inode->sector, BLOCK_SECTOR_SIZE, 0);
   if (data.is_dir) {
     struct dir* dir_to_remove = dir_open(file_inode);
     if (!is_dir_empty(dir_to_remove)) {

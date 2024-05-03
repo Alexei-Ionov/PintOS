@@ -5,6 +5,7 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include "lib/kernel/list.h"
+#include "threads/synch.h"
 
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
@@ -29,12 +30,29 @@ struct inode {
   //struct inode_disk data; /* Inode content. */
 };
 
+struct cache_metadata {
+  int valid; // Valid bit - set to 0 upon initialization
+  int dirty; // Dirty bit - set to 0 upon initialization
+  int use;   // Use bit - set to 0 upon initialization
+  struct lock
+      cache_index_lock; // Lock for this specific index - hold when modifying ANYTHING in this cache index
+  block_sector_t sector_index; // Block sector tied to the data
+  block_sector_t
+      old_sector_index; // Block sector BEFORE updating cache metadata struct (used for writing back to disk)
+  uint8_t data[BLOCK_SECTOR_SIZE]; // Data copied over from disk
+};
+
 struct bitmap;
 
 void inode_init(void);
 bool inode_create(block_sector_t, off_t, int);
 struct inode* inode_open(block_sector_t);
 struct inode* inode_reopen(struct inode*);
+void init_cache(void);
+void update_clock(void);
+void read_helper(void* buffer, block_sector_t sector_idx, size_t size, int offset);
+void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, int offset);
+void evict_cache(void);
 block_sector_t inode_get_inumber(const struct inode*);
 void inode_close(struct inode*);
 void inode_remove(struct inode*);
