@@ -158,3 +158,7 @@ void sema_up(sema_t* sema) {
 }
 
 tid_t get_tid(void) { return syscall0(SYS_GET_TID); }
+
+int bc_stats(int sel) { return syscall1(SYS_BC_STATS, sel); }
+
+void bc_clear() { return syscall0(SYS_BC_CLEAR); }

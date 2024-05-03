@@ -577,3 +577,6 @@ off_t inode_length(const struct inode* inode) {
   //read_helper(inode_block, inode->sector, BLOCK_SECTOR_SIZE, 0);
   return inode_block.length;
 }
+
+int get_cache_misses() { return cache_misses; }
+int get_cache_hits() { return cache_hits; }

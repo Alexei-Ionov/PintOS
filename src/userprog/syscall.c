@@ -818,3 +818,13 @@ tid_t sys_get_tid(void) { return thread_current()->tid; }
 
 mapid_t sys_mmap(int fd, void* addr) {}
 void sys_munmap(mapid_t) {}
+
+int sys_bc_stats(int sel) {
+  if (sel == 0) {
+    return get_cache_misses();
+  } else if (sel == 1) {
+    return get_cache_hits();
+  }
+}
+
+void sys_bc_clear() { evict_cache(); }
