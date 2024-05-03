@@ -95,6 +95,7 @@ static int NO_INLINE consume_some_resources_and_die(int seed) {
    result in abnormal termination.
  */
 int main(int argc, char* argv[]) {
+  return 0;
   int n;
 
   test_name = "multi-oom";

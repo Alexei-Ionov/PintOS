@@ -75,6 +75,10 @@ struct file* filesys_open(const char* name) {
   if ((strcmp(name, ".") == 0 || strcmp(name, "..") == 0) && get_cwd_sector() == NULL) {
     return NULL;
   }
+  // if (strcmp(name, ".") == 0) {
+  //   return file_open(inode_open(get_cwd_sector()));
+  // }
+
   struct dir* dir = get_dir_no_create(name, false);
   if (dir == NULL)
     return NULL;
