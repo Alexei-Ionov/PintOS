@@ -26,8 +26,9 @@ void test_main(void) {
   int new_total_write = bc_stats(2);
 
   msg("read 64 KiB from \"a\" byte-by-byte");
-  char buffer;
+
   /*
+  char buffer;
     for (i = 0; i < TOTAL_SIZE; i++) {
         read(fd, &buffer, 1);
     }
@@ -37,8 +38,8 @@ void test_main(void) {
   remove("a");
   msg("close \"a\"");
 
-  int diff = new_total_write - old_total_write if (diff > 120 && diff < 200) {
+  int diff = new_total_write - old_total_write;
+  if (diff > 120 && diff < 200) {
     msg("Total writes is close to 128");
   }
-  msg("total writes: %d", total_write);
 }
