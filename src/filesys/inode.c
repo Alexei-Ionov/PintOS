@@ -237,6 +237,10 @@ We release the global lock only after we acquire the index lock of the replaced 
 void read_helper(void* buffer, block_sector_t sector_idx, size_t size, int offset) {
   // instead of calling block_read, we call this function, which checks our cache to see if we have sector_idx in our cache.
   // if it's in our cache, we just read it into buffer, else we bring in the sector index into the cache and bring it from the cache then.
+  if (sector_idx == FREE_MAP_SECTOR) {
+    block_read(fs_device, FREE_MAP_SECTOR, buffer);
+    return;
+  }
   lock_acquire(&cache_lock);
   for (int i = 0; i < 64; i++) {
     // if we have found the sector index, then we memcpy and set use bit to 1
@@ -365,8 +369,7 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
     free_map_allocate(1, &inode->doubly_indirect);
   } else {
     // block_read(fs_device, inode->doubly_indirect, doubly_indirect_buffer);
-    read_helper(doubly_indirect_buffer, inode->doubly_indirect,
-                BLOCK_SECTOR_SIZE, 0);
+    read_helper(doubly_indirect_buffer, inode->doubly_indirect, BLOCK_SECTOR_SIZE, 0);
     //read_helper
   }
   block_sector_t* singly_indirect_buffer = calloc(NUM_POINTER, sizeof(block_sector_t));
@@ -376,7 +379,7 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
     if (final_size <= ((NUM_DIRECT + (i * NUM_POINTER)) * BLOCK_SECTOR_SIZE) &&
         doubly_indirect_buffer[i] != 0) {
       // block_read(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-      read_helper(singly_indirect_buffer, doubly_indirect_buffer[i], BLOCK_SECTOR_SIZE,0);
+      read_helper(singly_indirect_buffer, doubly_indirect_buffer[i], BLOCK_SECTOR_SIZE, 0);
       /* shrink all singly direct*/
       for (int j = 0; j < NUM_POINTER; j++) {
         /* release and indicate free */
@@ -432,85 +435,20 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
   inode->length = final_size; // do not change length in resize function
 
   // block_write(fs_device, inode_sector, (void*)inode);
- 
+
   free(doubly_indirect_buffer);
   free(zero_block);
   free(singly_indirect_buffer);
-  /* Iterate through the pointers in the doubly indirect block. */
-  // block_sector_t* singly_indirect_buffer = calloc(NUM_POINTER, sizeof(block_sector_t));
-  // for (int i = 0; i < NUM_POINTER; i++) {
-  //   memset(singly_indirect_buffer, 0, 512);
-  //   if (doubly_indirect_buffer[i] != 0 && final_size > (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     // if allocated and new size is greater, then read into buffer
-  //     // block_read(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     read_helper(singly_indirect_buffer, doubly_indirect_buffer[i],
-  //                 BLOCK_SECTOR_SIZE, 0);
-  //     //read_helper
-  //   } else if (doubly_indirect_buffer[i] != 0 &&
-  //              final_size <= (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     // if allocated and new size is smaller, still read in but free in following for loop
-  //     // block_read(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     read_helper(singly_indirect_buffer, doubly_indirect_buffer[i], BLOCK_SECTOR_SIZE, 0);
-  //     //read_helper
-  //   } else if (doubly_indirect_buffer[i] == 0 &&
-  //              final_size > (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     // if unallocated and new size is greater, then allocate block
-  //     free_map_allocate(1, &doubly_indirect_buffer[i]);
-  //   } else if (doubly_indirect_buffer[i] == 0 &&
-  //              final_size <= (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     // if unallocated and new size is smaller, then break from loop
-  //     break;
-  //   }
-
-  //   /* Process the singly indirect block. */
-  //   for (int j = 0; j < NUM_POINTER; j++) {
-  //     if (singly_indirect_buffer[j] != 0 &&
-  //         final_size <= (12 + i * NUM_POINTER + j) * BLOCK_SECTOR_SIZE) {
-  //       /* Shrink */
-  //       free_map_release(singly_indirect_buffer[j], 1);
-  //       singly_indirect_buffer[j] = 0;
-  //     } else if (singly_indirect_buffer[j] == 0 &&
-  //                final_size > (12 + i * NUM_POINTER + j) * BLOCK_SECTOR_SIZE) {
-  //       /* Grow */
-  //       free_map_allocate(1, &singly_indirect_buffer[j]);
-  //       // block_write(fs_device, singly_indirect_buffer[j], zero_block);
-  //       write_helper(zero_block, singly_indirect_buffer[j], sizeof(block_sector_t) * NUM_POINTER,
-  //                    0);
-  //     }
-  //   }
-
-  //   /* If size does not reach the current singly indirect block, 
-  //      then free the current singly indirect block. */
-  //   if (final_size <= (12 + i * NUM_POINTER) * BLOCK_SECTOR_SIZE) {
-  //     free_map_release(doubly_indirect_buffer[i], 1);
-  //     doubly_indirect_buffer[i] = 0;
-  //   } else {
-  //     // block_write(fs_device, doubly_indirect_buffer[i], singly_indirect_buffer);
-  //     write_helper(singly_indirect_buffer, doubly_indirect_buffer[i],
-  //                  NUM_POINTER * sizeof(block_sector_t), 0);
-  //     free(singly_indirect_buffer);
-  //   }
-  // }
-
-  // /* If size does not require a doubly indirect pointer, then remove it. */
-  // if (final_size <= 12 * BLOCK_SECTOR_SIZE) {
-  //   free_map_release(inode->doubly_indirect, 1);
-  //   inode->doubly_indirect = 0;
-  // } else {
-  //   // block_write(fs_device, inode->doubly_indirect, doubly_indirect_buffer);
-  //   write_helper(doubly_indirect_buffer, inode->doubly_indirect,
-  //                sizeof(block_sector_t) * NUM_POINTER, 0);
-  // }
-  // free(doubly_indirect_buffer);
-  // free(zero_block);
-  // inode->length = final_size; // do not change length in resize function
-  // lock_release(&write_lock);
   return 1;
 }
 
 void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, int offset) {
   // instead of calling block_write, we call this function, which checks our cache to see if we have sector_idx in our cache.
   // if it's in our cache, we just write to it from the buffer, else we bring in the sector index into the cache and write to it
+  if (sector_idx == FREE_MAP_SECTOR) {
+    block_write(fs_device, FREE_MAP_SECTOR, buffer);
+    return;
+  }
   lock_acquire(&cache_lock);
   for (int i = 0; i < 64; i++) {
     // if we have found the sector index, then we memcpy and set use bit to 1
