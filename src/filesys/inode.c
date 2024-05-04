@@ -42,6 +42,9 @@ static block_sector_t sector_of_index(struct inode* inode, int sector_index) {
     //read_helper(sector, &inode_block->direct[sector_index], BLOCK_SECTOR_SIZE, 0);
   } else {
     // Traverse doubly indirect pointer
+    if (inode_block.doubly_indirect == 0) {
+      return -1;
+    }
     sector_index = sector_index - NUM_DIRECT;
     block_sector_t doubly_indirect[NUM_POINTER];
     block_sector_t singly_indirect[NUM_POINTER];
@@ -51,11 +54,7 @@ static block_sector_t sector_of_index(struct inode* inode, int sector_index) {
     read_helper(&singly_indirect, doubly_indirect[sector_index / NUM_POINTER], BLOCK_SECTOR_SIZE,
                 0);
     return singly_indirect[sector_index % NUM_POINTER];
-    //read_helper(doubly_indirect, &inode_block->doubly_indirect, BLOCK_SECTOR_SIZE, 0);
-    //read_helper(singly_indirect, doubly_indirect[sector_index / NUM_POINTER], BLOCK_SECTOR_SIZE, 0);
-    //read_helper(sector, singly_indirect[sector_index % NUM_POINTER], BLOCK_SECTOR_SIZE, 0);
   }
-  return sector;
 }
 
 /* Returns the block device sector that contains byte offset POS
@@ -116,16 +115,10 @@ bool inode_create(block_sector_t sector, off_t length, int is_dir) {
   disk_inode->length = 0;
   disk_inode->magic = INODE_MAGIC;
   disk_inode->is_dir = is_dir;
-  // for (int i = 0; i < NUM_DIRECT; i++) {
-  //   disk_inode->direct[i] = FREE;
-  // }
   success = inode_resize(disk_inode, length);
-  if (!success)
-    return false;
-  // block_write(fs_device, sector, disk_inode);
-  write_helper(disk_inode, sector, BLOCK_SECTOR_SIZE, 0);
-  //write_helper(disk_inode, sector, BLOCK_SECTOR_SIZE, 0);
-
+  if (success) {
+     write_helper(disk_inode, sector, BLOCK_SECTOR_SIZE, 0);
+  }
   free(disk_inode);
 
   return success;
@@ -185,19 +178,17 @@ void inode_close(struct inode* inode) {
     list_remove(&inode->elem);
 
     struct inode_disk inode_block;
-    // block_read(fs_device, inode->sector, &inode_block);
     read_helper(&inode_block, inode->sector, BLOCK_SECTOR_SIZE, 0);
-    //read_helper(inode_block, inode->sector, BLOCK_SECTOR_SIZE, 0);
-
     /* Deallocate blocks if removed. */
     if (inode->removed) {
       inode_resize(&inode_block, 0);
       free_map_release(inode->sector, 1);
+       
+      char buf[BLOCK_SECTOR_SIZE];
+      memset(&buf, 0, BLOCK_SECTOR_SIZE);
+      write_helper(buf, inode->sector, BLOCK_SECTOR_SIZE, 0);
     }
-    // if (inode->removed) {
-    //   free_map_release(inode->sector, 1);
-    //   free_map_release(inode_block.start, bytes_to_sectors(inode_block.length));
-    // }
+    
 
     free(inode);
   }
@@ -362,7 +353,9 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
   /* Allocate doubly indirect as needed */
   if (inode->doubly_indirect == 0 && final_size <= BLOCK_SECTOR_SIZE * NUM_DIRECT) {
     inode->length = final_size; // do not change length in resize function
-    // lock_release(&write_lock);
+    // write_helper((void*)inode, , sizeof(block_sector_t) * NUM_POINTER,
+    //                  0);
+    // write_helper(const void* buffer, block_sector_t sector_idx, size_t size, int offset)
     return 1;
   }
 
@@ -497,13 +490,11 @@ void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, in
    (Normally a write at end of file would extend the inode, but
    growth is not yet implemented.) */
 off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t offset) {
-  // lock_acquire(&write_lock);
   const uint8_t* buffer = buffer_;
   off_t bytes_written = 0;
   uint8_t* bounce = NULL;
 
   if (inode->deny_write_cnt) {
-    // lock_release(&write_lock);
     return 0;
   }
 
@@ -554,7 +545,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   }
 
   free(bounce);
-  // lock_release(&write_lock);
+ 
   return bytes_written;
 }
 
