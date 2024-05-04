@@ -32,8 +32,8 @@ void filesys_init(bool format) {
 /* Shuts down the file system module, writing any unwritten data
    to disk. */
 void filesys_done(void) {
-  evict_cache();
   free_map_close();
+  evict_cache();
 }
 /* Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
