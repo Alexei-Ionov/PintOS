@@ -348,7 +348,12 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
       inode->direct[i] = FREE;
     } else if ((final_size > (BLOCK_SECTOR_SIZE * i)) && inode->direct[i] == FREE) {
       /* Grow */
-      free_map_allocate(1, &inode->direct[i]);
+      // free_map_allocate(1, &inode->direct[i]);
+      bool success = free_map_allocate(1, &inode->direct[i]);
+      if (!success) {
+        inode_resize(inode, inode->length);
+        return 0;
+      }
       //write_helper
     }
   }
@@ -366,7 +371,11 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
      so prepare buffer to allocate or load it. */
   block_sector_t* doubly_indirect_buffer = calloc(NUM_POINTER, sizeof(block_sector_t));
   if (inode->doubly_indirect == 0) {
-    free_map_allocate(1, &inode->doubly_indirect);
+    // free_map_allocate(1, &inode->doubly_indirect);
+    if (!free_map_allocate(1, &inode->doubly_indirect)) {
+      inode_resize(inode, inode->length);
+      return 0;
+    }
   } else {
     // block_read(fs_device, inode->doubly_indirect, doubly_indirect_buffer);
     read_helper(doubly_indirect_buffer, inode->doubly_indirect, BLOCK_SECTOR_SIZE, 0);
@@ -403,7 +412,7 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
       } else {
         /* need to allocate a sector for it cuz it's NOT alr in use !*/
         if (!free_map_allocate(1, &doubly_indirect_buffer[i])) {
-          // inode_resize(inode, inode->length);
+          inode_resize(inode, inode->length);
           return 0;
         }
       }
@@ -416,8 +425,7 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
         } else if (final_size > (NUM_DIRECT + (NUM_DIRECT * i + j)) * BLOCK_SECTOR_SIZE &&
                    singly_indirect_buffer[j] == FREE) {
           if (!free_map_allocate(1, &singly_indirect_buffer[j])) {
-
-            // inode_resize(inode, inode->length);
+            inode_resize(inode, inode->length);
             return 0;
           }
         }
