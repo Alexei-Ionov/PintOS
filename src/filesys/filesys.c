@@ -28,7 +28,7 @@ void filesys_init(bool format) {
   if (format)
     do_format();
 
-  // free_map_open();
+  free_map_open();
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -154,9 +154,9 @@ bool filesys_remove(const char* name) {
 /* Formats the file system. */
 static void do_format(void) {
   printf("Formatting file system...");
-  // free_map_create();
+  free_map_create();
   if (!dir_create(ROOT_DIR_SECTOR, 16, ROOT_DIR_SECTOR))
     PANIC("root directory creation failed");
-  // free_map_close();
+  free_map_close();
   printf("done.\n");
 }
