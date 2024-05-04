@@ -117,7 +117,7 @@ bool inode_create(block_sector_t sector, off_t length, int is_dir) {
   disk_inode->is_dir = is_dir;
   success = inode_resize(disk_inode, length);
   if (success) {
-     write_helper(disk_inode, sector, BLOCK_SECTOR_SIZE, 0);
+    write_helper(disk_inode, sector, BLOCK_SECTOR_SIZE, 0);
   }
   free(disk_inode);
 
@@ -183,12 +183,11 @@ void inode_close(struct inode* inode) {
     if (inode->removed) {
       inode_resize(&inode_block, 0);
       free_map_release(inode->sector, 1);
-       
+
       char buf[BLOCK_SECTOR_SIZE];
       memset(&buf, 0, BLOCK_SECTOR_SIZE);
       write_helper(buf, inode->sector, BLOCK_SECTOR_SIZE, 0);
     }
-    
 
     free(inode);
   }
@@ -446,6 +445,10 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
 void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, int offset) {
   // instead of calling block_write, we call this function, which checks our cache to see if we have sector_idx in our cache.
   // if it's in our cache, we just write to it from the buffer, else we bring in the sector index into the cache and write to it
+  if (sector_idx == FREE_MAP_SECTOR) {
+    block_write(fs_device, FREE_MAP_SECTOR, buffer);
+    return;
+  }
   lock_acquire(&cache_lock);
   for (int i = 0; i < 64; i++) {
     // if we have found the sector index, then we memcpy and set use bit to 1
@@ -545,7 +548,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   }
 
   free(bounce);
- 
+
   return bytes_written;
 }
 
