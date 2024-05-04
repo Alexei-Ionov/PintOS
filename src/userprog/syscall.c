@@ -451,7 +451,6 @@ struct dir* get_dir_no_create(const char* dir, bool is_chdir) {
       return NULL;
     }
     dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
-  
   }
 
   if (strcmp(dir, "/") == 0) {

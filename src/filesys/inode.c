@@ -445,10 +445,6 @@ int inode_resize(struct inode_disk* inode, off_t final_size) {
 void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, int offset) {
   // instead of calling block_write, we call this function, which checks our cache to see if we have sector_idx in our cache.
   // if it's in our cache, we just write to it from the buffer, else we bring in the sector index into the cache and write to it
-  if (sector_idx == FREE_MAP_SECTOR) {
-    block_write(fs_device, FREE_MAP_SECTOR, buffer);
-    return;
-  }
   lock_acquire(&cache_lock);
   for (int i = 0; i < 64; i++) {
     // if we have found the sector index, then we memcpy and set use bit to 1

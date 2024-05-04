@@ -39,7 +39,6 @@ void free_map_release(block_sector_t sector, size_t cnt) {
   lock_acquire(&free_map_lock);
   bitmap_set_multiple(free_map, sector, cnt, false);
   lock_release(&free_map_lock);
-
 }
 
 /* Opens the free map file and reads it from disk. */
@@ -69,5 +68,5 @@ void free_map_create(void) {
   if (free_map_file == NULL)
     PANIC("can't open free map");
   if (!bitmap_write(free_map, free_map_file))
-    PANIC("can't write frmee map");
+    PANIC("can't write fmee map");
 }
