@@ -451,11 +451,7 @@ struct dir* get_dir_no_create(const char* dir, bool is_chdir) {
       return NULL;
     }
     dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
-    // if ((strcmp(dir, ".") == 0) || strcmp(dir, "..") == 0) {
-    //   dir_head = dir_open_root();
-    // } else {
-    //   dir_head = dir_open(inode_open(inode_get_inumber(dir_get_inode(thread_current()->pcb->cwd))));
-    // }
+  
   }
 
   if (strcmp(dir, "/") == 0) {
@@ -610,23 +606,23 @@ bool sys_mkdir(const char* dir) {
   if (d == NULL) {
     return false;
   }
-  uint32_t* sectorp;
-  if (!free_map_allocate(1, sectorp)) {
+  uint32_t sector;
+  if (!free_map_allocate(1, &sector)) {
     dir_close(d);
     return false;
   }
-  if (!dir_create(*sectorp, 16, inode_get_inumber(dir_get_inode(d)))) {
+  if (!dir_create(sector, 16, inode_get_inumber(dir_get_inode(d)))) {
     dir_close(d);
-    free_map_release(*sectorp, 1);
+    free_map_release(sector, 1);
     return false;
   }
 
   char dir_name[15];
   get_last_part(dir, &dir_name);
   /* add dir entry for the newly created directory */
-  if (!dir_add(d, &dir_name, *sectorp)) {
+  if (!dir_add(d, &dir_name, sector)) {
     dir_close(d);
-    free_map_release(*sectorp, 1);
+    free_map_release(sector, 1);
     return false;
   }
   dir_close(d);
