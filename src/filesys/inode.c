@@ -219,6 +219,7 @@ void evict_cache(void) {
   for (int i = 0; i < 64; i++) {
     if (cache[i].valid && cache[i].dirty) {
       block_write(fs_device, cache[i].sector_index, cache[i].data);
+      cache[i].valid = 0;
       cache_misses = 0;
       cache_hits = 0;
     }
@@ -301,20 +302,10 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
     if (chunk_size <= 0)
       break;
 
+    // this honestly can be combined into one call but just leaving here incase need to change later
     if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
-      /* Read full sector directly into caller's buffer. */
-      // block_read(fs_device, sector_idx, buffer + bytes_read);
       read_helper(buffer + bytes_read, sector_idx, BLOCK_SECTOR_SIZE, 0);
     } else {
-      /* Read sector into bounce buffer, then partially copy
-             into caller's buffer. */
-      // if (bounce == NULL) {
-      //   bounce = malloc(BLOCK_SECTOR_SIZE);
-      //   if (bounce == NULL)
-      //     break;
-      // }
-      // block_read(fs_device, sector_idx, bounce);
-      // memcpy(buffer + bytes_read, bounce + sector_ofs, chunk_size);
       read_helper(buffer + bytes_read, sector_idx, chunk_size, sector_ofs);
     }
 
@@ -472,6 +463,11 @@ void write_helper(const void* buffer, block_sector_t sector_idx, size_t size, in
     }
   }
   // we did NOT hit in our cache, so we use clock and find next page
+  // if (size == BLOCK_SECTOR_SIZE && offset == 0) {
+  //   lock_release(&cache_lock);
+  //   block_write(fs_device, buffer, size);
+  //   return;
+  // }
   cache_misses++;
   update_clock();
   struct cache_metadata* cur_cache = &cache[clock_pointer];
