@@ -9,3 +9,5 @@ This project encompasses the development of various functionalities within an op
 - **Memory Management:** Engineered dynamic memory allocation capabilities, enabling user programs to request memory from the operating system via `sbrk`. Implemented `malloc`, `realloc`, and `free` functions within the kernel to facilitate efficient memory allocation and prevent fragmentation.
 
 - **Filesystem Development:** Implemented a filesystem inspired by Berkeley Fast File System (FFS), featuring a buffer cache, extensible files, and support for subdirectories.
+
+- **Multithreading:** Introduced locking, semaphores, and scheduling of kernel threads for concurrency.
